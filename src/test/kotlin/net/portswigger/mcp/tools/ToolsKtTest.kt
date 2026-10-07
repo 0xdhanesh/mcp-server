@@ -3,8 +3,10 @@ package net.portswigger.mcp.tools
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.burpsuite.TaskExecutionEngine
 import burp.api.montoya.collaborator.*
+import burp.api.montoya.core.Annotations
 import burp.api.montoya.core.BurpSuiteEdition
 import burp.api.montoya.core.ByteArray
+import burp.api.montoya.core.HighlightColor
 import burp.api.montoya.http.Http
 import burp.api.montoya.http.HttpMode
 import burp.api.montoya.http.HttpProtocol
@@ -1052,6 +1054,159 @@ class ToolsKtTest {
                 val result = client.callTool("get_collaborator_interactions", emptyMap())
                 delay(100)
                 result.expectTextContent("No interactions detected")
+            }
+        }
+    }
+
+    @Nested
+    inner class RepeaterHistoryAndExtensionTests {
+        @Test
+        fun `proxy history note is written through annotations`() {
+            val proxy = mockk<Proxy>()
+            val item = mockk<ProxyHttpRequestResponse>()
+            val annotations = mockk<Annotations>()
+            every { api.proxy() } returns proxy
+            every { proxy.history() } returns listOf(item)
+            every { item.id() } returns 7
+            every { item.annotations() } returns annotations
+            every { annotations.notes() } returns "old"
+            every { annotations.setNotes(any()) } just runs
+            every { annotations.setHighlightColor(any()) } just runs
+
+            runBlocking {
+                val result = client.callTool(
+                    "set_proxy_history_notes", mapOf(
+                        "historyId" to 7,
+                        "notes" to "interesting",
+                        "highlightColor" to "YELLOW",
+                        "append" to true
+                    )
+                )
+                delay(100)
+                result.expectTextContent("Updated proxy history notes on 1 item(s): 7.")
+            }
+
+            verify { annotations.setNotes("old\ninteresting") }
+            verify { annotations.setHighlightColor(HighlightColor.YELLOW) }
+        }
+
+        @Test
+        fun `history item can be opened in repeater and issued on a connection`() {
+            RepeaterSession.resetForTests()
+            val proxy = mockk<Proxy>()
+            val repeater = mockk<burp.api.montoya.repeater.Repeater>(relaxed = true)
+            val http = mockk<Http>()
+            val item = mockk<ProxyHttpRequestResponse>()
+            val service = mockk<burp.api.montoya.http.HttpService>()
+            val request = mockk<HttpRequest>()
+            val response = mockk<burp.api.montoya.http.message.HttpRequestResponse>()
+            val annotations = mockk<Annotations>()
+
+            every { api.proxy() } returns proxy
+            every { api.repeater() } returns repeater
+            every { api.http() } returns http
+            every { proxy.history() } returns listOf(item)
+            every { item.id() } returns 4
+            every { item.finalRequest() } returns request
+            every { item.request() } returns request
+            every { item.annotations() } returns annotations
+            every { annotations.notes() } returns "from history"
+            every { request.httpService() } returns service
+            every { request.httpVersion() } returns "HTTP/1.1"
+            every { request.toString() } returns "GET /p HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            every { service.host() } returns "example.com"
+            every { service.port() } returns 80
+            every { service.secure() } returns false
+            every { response.toString() } returns "HTTP/1.1 200 OK\r\n\r\nhello END tail"
+            every { http.sendRequest(any(), HttpMode.HTTP_1, any()) } returns response
+
+            runBlocking {
+                val opened = client.callTool(
+                    "send_proxy_history_to_repeater", mapOf(
+                        "historyId" to 4,
+                        "tabName" to "history-4"
+                    )
+                )
+                delay(100)
+                val openedText = opened.expectTextContent()
+                assertTrue(openedText.contains("history-4"))
+
+                val sent = client.callTool(
+                    "send_repeater_request", mapOf(
+                        "tabName" to "history-4",
+                        "responseEndMarker" to "END",
+                        "truncateAtEndMarker" to true,
+                        "issueFrom" to "http"
+                    )
+                )
+                delay(100)
+                val sentText = sent.expectTextContent()
+                assertTrue(sentText.contains("connection"))
+                assertTrue(sentText.contains("hello END"))
+                assertTrue(sentText.contains("truncated at the marker"))
+                assertFalse(sentText.substringBefore("End marker").contains("tail"))
+            }
+
+            verify { repeater.sendToRepeater(request, "history-4") }
+            verify { http.sendRequest(request, HttpMode.HTTP_1, "mcp-repeater-history-4") }
+        }
+
+        @Test
+        fun `ator status probe lists exposed tools`() {
+            val http = mockk<Http>()
+            val response = mockk<burp.api.montoya.http.message.HttpRequestResponse>()
+            every { api.http() } returns http
+            every { HttpRequest.httpRequest(any(), any<String>()) } answers {
+                mockk<HttpRequest>().also { every { it.toString() } returns secondArg<String>() }
+            }
+            every { response.toString() } returns """
+                HTTP/1.1 200 OK
+                Content-Type: application/json
+
+                {"ok":true,"extension":"ATOR","commands":"status, refresh, export, import","tools":[{"name":"Repeater","enabled":true},{"name":"Extensions","enabled":true}]}
+            """.trimIndent().replace("\n", "\r\n")
+            every { http.sendRequest(any()) } returns response
+
+            runBlocking {
+                val result = client.callTool(
+                    "call_extension_command", mapOf(
+                        "header" to "X-ATOR-Command",
+                        "command" to "status"
+                    )
+                )
+                delay(100)
+                val text = result.expectTextContent()
+                assertTrue(text.contains("Extension: ATOR"))
+                assertTrue(text.contains("Repeater enabled=true"))
+                assertTrue(text.contains("status, refresh, export, import"))
+            }
+        }
+
+        @Test
+        fun `send http1 can mark the end of the response`() {
+            val http = mockk<Http>()
+            val response = mockk<burp.api.montoya.http.message.HttpRequestResponse>()
+            every { api.http() } returns http
+            every { HttpRequest.httpRequest(any(), any<String>()) } answers {
+                mockk<HttpRequest>().also { every { it.toString() } returns secondArg<String>() }
+            }
+            every { response.toString() } returns "HTTP/1.1 200 OK\r\n\r\npayload END more"
+            every { http.sendRequest(any()) } returns response
+
+            runBlocking {
+                val result = client.callTool(
+                    "send_http1_request", mapOf(
+                        "content" to "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+                        "targetHostname" to "example.com",
+                        "targetPort" to 80,
+                        "usesHttps" to false,
+                        "responseEndMarker" to "END"
+                    )
+                )
+                delay(100)
+                val text = result.expectTextContent()
+                assertTrue(text.contains("payload END more"))
+                assertTrue(text.contains("End marker \"END\""))
             }
         }
     }

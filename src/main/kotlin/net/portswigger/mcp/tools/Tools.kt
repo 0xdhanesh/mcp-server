@@ -4,6 +4,7 @@ import burp.api.montoya.MontoyaApi
 import burp.api.montoya.burpsuite.TaskExecutionEngine.TaskExecutionEngineState.PAUSED
 import burp.api.montoya.burpsuite.TaskExecutionEngine.TaskExecutionEngineState.RUNNING
 import burp.api.montoya.collaborator.InteractionFilter
+import burp.api.montoya.collaborator.PayloadOption
 import burp.api.montoya.core.BurpSuiteEdition
 import burp.api.montoya.http.HttpMode
 import burp.api.montoya.http.HttpService
@@ -125,8 +126,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         val response = api.http().sendRequest(request)
-
-        response?.toString() ?: "<no response>"
+        val raw = response?.toString() ?: "<no response>"
+        presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
     mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.") {
@@ -158,20 +159,20 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         val response = api.http().sendRequest(request, HttpMode.HTTP_2)
-
-        response?.toString() ?: "<no response>"
+        val raw = response?.toString() ?: "<no response>"
+        presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
-    mcpUnitTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2.") {
+    mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found.") {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
-        api.repeater().sendToRepeater(request, tabName)
+        openRepeaterTab(api, request, tabName, HttpMode.HTTP_1, notes)
     }
 
-    mcpUnitTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter.") {
+    mcpTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter. The request is not sent until send_repeater_request.") {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
-        api.repeater().sendToRepeater(request, tabName)
+        openRepeaterTab(api, request, tabName, HttpMode.HTTP_2, notes)
     }
 
     mcpUnitTool<SendToIntruder>("Sends an HTTP request to Intruder with the specified HTTP request and optional tab name. Make sure to use carriage returns appropriately.") {
@@ -255,36 +256,82 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
             api.siteMap().issues().asSequence().map { Json.encodeToString(it.toSerializableForm()) }
         }
 
-        val collaboratorClient by lazy { api.collaborator().createClient() }
+        val collaboratorClients = CollaboratorClients(api)
 
         mcpTool<GenerateCollaboratorPayload>(
-            "Generates a Burp Collaborator payload URL for out-of-band (OOB) testing. " +
-            "Inject this payload into requests to detect server-side interactions (DNS lookups, HTTP requests, SMTP). " +
-            "Use get_collaborator_interactions with the returned payloadId to check for interactions."
+            "Generates a Burp Collaborator payload for out-of-band testing. " +
+            "Inject the payload into a request, then poll with get_collaborator_interactions. " +
+            "Optional customData is stored with the payload. " +
+            "Set withoutServerLocation to omit the server hostname. " +
+            "Set linkToCollaboratorTab to use Burp's default generator so the interaction shows in the Collaborator tab. " +
+            "Those tab payloads are not returned by get_collaborator_interactions. " +
+            "Set includeSecretKey to also return the client secret. get_collaborator_client returns it at any time."
         ) {
             api.logging().logToOutput("MCP generating Collaborator payload${customData?.let { " with custom data" } ?: ""}")
 
-            val payload = if (customData != null) {
-                collaboratorClient.generatePayload(customData)
-            } else {
-                collaboratorClient.generatePayload()
+            if (linkToCollaboratorTab == true) {
+                val generator = api.collaborator().defaultPayloadGenerator()
+                val options = if (withoutServerLocation == true) {
+                    arrayOf(PayloadOption.WITHOUT_SERVER_LOCATION)
+                } else {
+                    emptyArray()
+                }
+                val payload = generator.generatePayload(*options)
+                val serverAddress = payload.server().orElse(null)?.address()
+                return@mcpTool buildString {
+                    appendLine("Payload: $payload")
+                    appendLine("Payload ID: ${payload.id()}")
+                    if (serverAddress != null) appendLine("Collaborator server: $serverAddress")
+                    append("Linked to the Burp Collaborator tab. Poll that tab. get_collaborator_interactions does not see this payload.")
+                    if (customData != null) {
+                        append(" customData was ignored because the default generator does not accept it.")
+                    }
+                }
+            }
+
+            val collaboratorClient = collaboratorClients.client()
+            val payload = when {
+                customData != null && withoutServerLocation == true ->
+                    collaboratorClient.generatePayload(customData, PayloadOption.WITHOUT_SERVER_LOCATION)
+                customData != null -> collaboratorClient.generatePayload(customData)
+                withoutServerLocation == true ->
+                    collaboratorClient.generatePayload(PayloadOption.WITHOUT_SERVER_LOCATION)
+                else -> collaboratorClient.generatePayload()
             }
 
             val server = collaboratorClient.server()
-            "Payload: $payload\nPayload ID: ${payload.id()}\nCollaborator server: ${server.address()}"
+            buildString {
+                appendLine("Payload: $payload")
+                appendLine("Payload ID: ${payload.id()}")
+                append("Collaborator server: ${server.address()}")
+                if (includeSecretKey == true) {
+                    val secret = runCatching { collaboratorClient.getSecretKey().toString() }.getOrNull()
+                    if (secret != null) append("\nSecret key: $secret")
+                }
+            }
         }
 
         mcpTool<GetCollaboratorInteractions>(
-            "Polls Burp Collaborator for out-of-band interactions (DNS, HTTP, SMTP). " +
-            "Optionally filter by payloadId from generate_collaborator_payload. " +
-            "Returns interaction details including type, timestamp, client IP, and protocol-specific data."
+            "Polls the MCP Collaborator client for DNS, HTTP, and SMTP interactions. " +
+            "Filter with payloadId from generate_collaborator_payload, with the payload string, or with interactionType (DNS, HTTP, SMTP). " +
+            "Does not include payloads created with linkToCollaboratorTab."
         ) {
+            val collaboratorClient = collaboratorClients.client()
             api.logging().logToOutput("MCP polling Collaborator interactions${payloadId?.let { " for payload: $it" } ?: ""}")
 
-            val interactions = if (payloadId != null) {
-                collaboratorClient.getInteractions(InteractionFilter.interactionIdFilter(payloadId))
-            } else {
-                collaboratorClient.getAllInteractions()
+            val fetched = when {
+                payloadId != null ->
+                    collaboratorClient.getInteractions(InteractionFilter.interactionIdFilter(payloadId))
+                payload != null ->
+                    collaboratorClient.getInteractions(InteractionFilter.interactionPayloadFilter(payload))
+                else -> collaboratorClient.getAllInteractions()
+            }
+            val interactions = fetched.filter { interaction ->
+                val payloadMatches = payload == null || payloadId == null ||
+                    InteractionFilter.interactionPayloadFilter(payload).matches(collaboratorClient.server(), interaction)
+                val typeMatches = interactionType == null ||
+                    interaction.type().name.equals(interactionType, ignoreCase = true)
+                payloadMatches && typeMatches
             }
 
             if (interactions.isEmpty()) {
@@ -294,6 +341,31 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
                     Json.encodeToString(it.toSerializableForm())
                 }
             }
+        }
+
+        mcpTool<GetCollaboratorClient>(
+            "Returns the Collaborator server address and the secret key for the MCP Collaborator client. " +
+            "The secret is stored in the project file so later polls see the same payloads. " +
+            "Pass secretKey to restore a different client instead."
+        ) {
+            if (!secretKey.isNullOrBlank()) {
+                val restored = api.collaborator().restoreClient(
+                    burp.api.montoya.collaborator.SecretKey.secretKey(secretKey)
+                )
+                collaboratorClients.use(restored)
+                val address = restored.server().address()
+                val literal = runCatching { restored.server().isLiteralAddress() }.getOrNull()
+                runCatching {
+                    api.persistence().extensionData().setString(CollaboratorClients.SECRET_KEY, secretKey)
+                }
+                return@mcpTool "Restored Collaborator client.\nCollaborator server: $address\nLiteral address: $literal\nSecret key: $secretKey"
+            }
+
+            val collaboratorClient = collaboratorClients.client()
+            val secret = runCatching { collaboratorClient.getSecretKey().toString() }.getOrElse { "<unavailable>" }
+            val server = collaboratorClient.server()
+            val literal = runCatching { server.isLiteralAddress() }.getOrNull()
+            "Collaborator server: ${server.address()}\nLiteral address: $literal\nSecret key: $secret"
         }
     }
 
@@ -401,6 +473,206 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         "Editor text has been set"
     }
+
+    mcpPaginatedTool<GetProxyHttpHistorySummary>(
+        "Lists proxy HTTP history as one short JSON object per item: id, time, method, url, status, notes, edited. " +
+            "Use the id with send_proxy_history_to_repeater and set_proxy_history_notes. " +
+            "Optional regex limits the items. Newest items are at the end of proxy history, so page with offset."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
+        }
+        if (!allowed) {
+            return@mcpPaginatedTool sequenceOf("HTTP history access denied by Burp Suite")
+        }
+        val compiled = regex?.takeIf { it.isNotBlank() }?.let { Pattern.compile(it) }
+        val history = if (compiled != null) api.proxy().history { it.contains(compiled) } else api.proxy().history()
+        history.asSequence().map { proxyHistorySummaryLine(it) }
+    }
+
+    mcpTool<GetProxyHttpHistoryItem>(
+        "Returns one proxy HTTP history item by id, including the request, response, and notes."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
+        }
+        if (!allowed) return@mcpTool "HTTP history access denied by Burp Suite"
+        val item = findProxyHistoryItem(api, historyId) ?: return@mcpTool "No proxy history item with id $historyId."
+        encodeHistoryItem(item.toSerializableForm())
+    }
+
+    mcpTool<SetProxyHistoryNotes>(
+        "Writes the proxy HTTP history Notes field (the Comment column) for one history id or for items matching a regex. " +
+            "Optional highlightColor is a Burp color name: RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PINK, MAGENTA, GRAY, or NONE. " +
+            "Set append to add to the existing note instead of replacing it."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
+        }
+        if (!allowed) return@mcpTool "HTTP history access denied by Burp Suite"
+        annotateProxyHistory(api, historyId, regex, notes, highlightColor, append == true)
+    }
+
+    mcpTool<SendProxyHistoryToRepeater>(
+        "Sends one proxy HTTP history item to a Repeater tab using Repeater.sendToRepeater. " +
+            "Pass historyId from get_proxy_http_history_summary. " +
+            "useFinalRequest selects the request Burp actually sent after proxy match-and-replace. " +
+            "Notes are copied from the history item unless notes is set or copyNotes is false. " +
+            "Set sendNow to issue that Repeater tab and return the response in this call."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
+        }
+        if (!allowed) return@mcpTool "HTTP history access denied by Burp Suite"
+
+        val item = findProxyHistoryItem(api, historyId) ?: return@mcpTool "No proxy history item with id $historyId."
+        val source = if (useFinalRequest != false) {
+            runCatching { item.finalRequest() }.getOrNull() ?: item.request()
+        } else {
+            item.request()
+        } ?: return@mcpTool "Proxy history item $historyId has no request."
+
+        val mode = when (runCatching { source.httpVersion() }.getOrNull()?.uppercase()) {
+            "HTTP/2" -> HttpMode.HTTP_2
+            else -> HttpMode.HTTP_1
+        }
+        val tabNotes = notes ?: if (copyNotes != false) {
+            runCatching { item.annotations()?.notes() }.getOrNull()
+        } else {
+            null
+        }
+        val name = tabName?.takeIf { it.isNotBlank() } ?: "history-$historyId"
+        val opened = openRepeaterTab(api, source, name, mode, tabNotes)
+        if (sendNow != true) return@mcpTool opened
+        opened + "\n\n" + issueRepeaterTab(
+            api, config, name, null, null, null, responseEndMarker, truncateAtEndMarker, null, issueFrom
+        )
+    }
+
+    mcpTool<SendRepeaterRequest>(
+        "Sends the request that is open in a Repeater tab and returns the response. " +
+            "By default this clicks Send in that Repeater tab so the request leaves from Repeater and the model can read the response. " +
+            "If the Send button is not available, the same request is issued once with Http.sendRequest on the tab's connection id. " +
+            "Pass issueFrom http to use that HTTP API directly and reuse connectionId. " +
+            "responseEndMarker is the literal word or characters that mark the end of the server response. " +
+            "Set truncateAtEndMarker to keep only the response through that marker. " +
+            "notes is written to the Repeater tab Notes field."
+    ) {
+        issueRepeaterTab(
+            api,
+            config,
+            tabName,
+            content,
+            httpMode,
+            connectionId,
+            responseEndMarker,
+            truncateAtEndMarker,
+            notes,
+            issueFrom
+        )
+    }
+
+    mcpTool<SetRepeaterNotes>(
+        "Writes the Notes field of a Repeater tab opened by MCP. The note is kept with the tab and written into the Repeater Notes field when that field is visible."
+    ) {
+        val tab = RepeaterSession.get(tabName)
+            ?: return@mcpTool "No Repeater tab named '$tabName'."
+        val next = if (append == true && tab.notes.isNotBlank()) tab.notes + "\n" + notes else notes
+        tab.notes = next
+        RepeaterSession.save(tab)
+        val written = RepeaterUi.trySetNotes(suiteFrameOf(api), tabName, next)
+        if (written) {
+            "Updated Repeater notes on '$tabName'."
+        } else {
+            "Saved Repeater notes on '$tabName'. The Notes field was not visible, so open that tab to see them."
+        }
+    }
+
+    mcpTool<SetRepeaterResponseEndMarker>(
+        "Records the word or characters that mark the end of the server response for a Repeater tab. " +
+            "Later send_repeater_request and get_repeater_tab use this marker. " +
+            "Pass an empty marker to clear it. truncateAtEndMarker drops everything after the marker when the response is shown."
+    ) {
+        val tab = RepeaterSession.get(tabName)
+            ?: return@mcpTool "No Repeater tab named '$tabName'."
+        tab.responseEndMarker = marker?.takeIf { it.isNotEmpty() }
+        if (truncateAtEndMarker != null) tab.truncateAtEndMarker = truncateAtEndMarker
+        RepeaterSession.save(tab)
+        val shown = tab.responseEndMarker ?: "<cleared>"
+        "Repeater tab '$tabName' end marker is $shown. Truncate: ${tab.truncateAtEndMarker}."
+    }
+
+    mcpTool<GetRepeaterTab>("Returns the request, notes, end marker, connection id, and last response for a Repeater tab opened by MCP.") {
+        describeRepeaterTab(tabName)
+    }
+
+    mcpTool("list_repeater_tabs", "Lists Repeater tabs opened by MCP in this Burp session, including notes and end markers.") {
+        listRepeaterTabs()
+    }
+
+    mcpTool<ListExtensionTools>(
+        "Lists tools exposed by loaded extensions. " +
+            "Montoya cannot enumerate another extension's API, so this probes command headers that extensions spoof. " +
+            "ATOR answers X-ATOR-Command: status and reports which Burp tools it updates, plus commands status, refresh, export, and import. " +
+            "Other extensions can answer X-Burp-Mcp-Discover: tools with a JSON body that contains a tools array. " +
+            "Pass header and command to probe one extension instead of the built-in probes."
+    ) {
+        val allowed = runBlocking {
+            HttpRequestSecurity.checkHttpRequestPermission("127.0.0.1", 1, config, "extension tool probe", api)
+        }
+        if (!allowed) return@mcpTool "Extension probe denied by Burp Suite"
+
+        val names = loadedExtensionNames(suiteFrameOf(api))
+        val probes = if (!header.isNullOrBlank() && !command.isNullOrBlank()) {
+            listOf(ExtensionCommand(header, header, command))
+        } else {
+            KNOWN_EXTENSION_PROBES
+        }
+        buildString {
+            appendLine("This extension: ${api.extension().filename()} bapp=${api.extension().isBapp()}")
+            if (names.isEmpty()) {
+                appendLine("Extensions table: not readable from here. Probes follow.")
+            } else {
+                appendLine("Extensions table:")
+                names.forEach { appendLine("- $it") }
+            }
+            appendLine()
+            probes.forEach { probe ->
+                appendLine(
+                    probeExtension(
+                        api,
+                        probe.header,
+                        probe.command,
+                        body.orEmpty(),
+                        targetHostname ?: "127.0.0.1",
+                        targetPort ?: 1,
+                        usesHttps == true
+                    )
+                )
+                appendLine()
+            }
+        }.trimEnd()
+    }
+
+    mcpTool<CallExtensionCommand>(
+        "Calls a command exposed by a loaded extension. The request is sent with Http.sendRequest, so the tool source is Extensions. " +
+            "ATOR spoofs X-ATOR-Command and does not forward the request. Commands: status, refresh, export, import. " +
+            "import reads the ATOR export JSON from body. " +
+            "Use header X-Burp-Mcp-Discover for extensions that follow that discovery header."
+    ) {
+        val hostname = targetHostname ?: "127.0.0.1"
+        val port = targetPort ?: 1
+        val https = usesHttps == true
+        val allowed = runBlocking {
+            HttpRequestSecurity.checkHttpRequestPermission(hostname, port, config, "$header: $command\n${body.orEmpty()}", api)
+        }
+        if (!allowed) return@mcpTool "Extension command denied by Burp Suite"
+        probeExtension(api, header, command, body.orEmpty(), hostname, port, https)
+    }
+}
+
+private fun suiteFrameOf(api: MontoyaApi) = RepeaterUi.suiteFrameOrNull {
+    api.userInterface().swingUtils().suiteFrame()
 }
 
 fun getActiveEditor(api: MontoyaApi): JTextArea? {
@@ -431,7 +703,9 @@ data class SendHttp1Request(
     val content: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val responseEndMarker: String? = null,
+    val truncateAtEndMarker: Boolean? = null
 ) : HttpServiceParams
 
 @Serializable
@@ -441,7 +715,9 @@ data class SendHttp2Request(
     val requestBody: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val responseEndMarker: String? = null,
+    val truncateAtEndMarker: Boolean? = null
 ) : HttpServiceParams
 
 @Serializable
@@ -450,7 +726,8 @@ data class CreateRepeaterTab(
     val content: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val notes: String? = null
 ) : HttpServiceParams
 
 @Serializable
@@ -461,7 +738,8 @@ data class CreateRepeaterTabHttp2(
     val requestBody: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val notes: String? = null
 ) : HttpServiceParams
 
 @Serializable
@@ -527,10 +805,101 @@ data class GetProxyWebsocketHistoryRegex(val regex: String, override val count: 
 
 @Serializable
 data class GenerateCollaboratorPayload(
-    val customData: String? = null
+    val customData: String? = null,
+    val withoutServerLocation: Boolean? = null,
+    val linkToCollaboratorTab: Boolean? = null,
+    val includeSecretKey: Boolean? = null
 )
 
 @Serializable
 data class GetCollaboratorInteractions(
-    val payloadId: String? = null
+    val payloadId: String? = null,
+    val payload: String? = null,
+    val interactionType: String? = null
+)
+
+@Serializable
+data class GetCollaboratorClient(
+    val secretKey: String? = null
+)
+
+@Serializable
+data class GetProxyHttpHistorySummary(
+    val regex: String? = null,
+    override val count: Int,
+    override val offset: Int
+) : Paginated
+
+@Serializable
+data class GetProxyHttpHistoryItem(val historyId: Int)
+
+@Serializable
+data class SetProxyHistoryNotes(
+    val historyId: Int? = null,
+    val regex: String? = null,
+    val notes: String,
+    val highlightColor: String? = null,
+    val append: Boolean? = null
+)
+
+@Serializable
+data class SendProxyHistoryToRepeater(
+    val historyId: Int,
+    val tabName: String? = null,
+    val useFinalRequest: Boolean? = null,
+    val notes: String? = null,
+    val copyNotes: Boolean? = null,
+    val sendNow: Boolean? = null,
+    val responseEndMarker: String? = null,
+    val truncateAtEndMarker: Boolean? = null,
+    val issueFrom: String? = null
+)
+
+@Serializable
+data class SendRepeaterRequest(
+    val tabName: String,
+    val content: String? = null,
+    val httpMode: String? = null,
+    val connectionId: String? = null,
+    val responseEndMarker: String? = null,
+    val truncateAtEndMarker: Boolean? = null,
+    val notes: String? = null,
+    val issueFrom: String? = null
+)
+
+@Serializable
+data class SetRepeaterNotes(
+    val tabName: String,
+    val notes: String,
+    val append: Boolean? = null
+)
+
+@Serializable
+data class SetRepeaterResponseEndMarker(
+    val tabName: String,
+    val marker: String? = null,
+    val truncateAtEndMarker: Boolean? = null
+)
+
+@Serializable
+data class GetRepeaterTab(val tabName: String)
+
+@Serializable
+data class ListExtensionTools(
+    val header: String? = null,
+    val command: String? = null,
+    val body: String? = null,
+    val targetHostname: String? = null,
+    val targetPort: Int? = null,
+    val usesHttps: Boolean? = null
+)
+
+@Serializable
+data class CallExtensionCommand(
+    val header: String,
+    val command: String,
+    val body: String? = null,
+    val targetHostname: String? = null,
+    val targetPort: Int? = null,
+    val usesHttps: Boolean? = null
 )
