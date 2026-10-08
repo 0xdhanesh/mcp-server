@@ -550,10 +550,9 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<SendRepeaterRequest>(
-        "Sends the request that is open in a Repeater tab and returns the response. " +
-            "By default this clicks Send in that Repeater tab so the request leaves from Repeater and the model can read the response. " +
-            "If the Send button is not available, the same request is issued once with Http.sendRequest on the tab's connection id. " +
-            "Pass issueFrom http to use that HTTP API directly and reuse connectionId. " +
+        "Sends the request that is open in a Repeater tab and returns the response shown in that tab. " +
+            "This clicks Send in that Repeater tab, or runs Repeater's own Ctrl/Cmd+Enter send action, so the request leaves from Repeater. " +
+            "Pass issueFrom http to skip the Repeater tab and use Http.sendRequest on connectionId. " +
             "responseEndMarker is the literal word or characters that mark the end of the server response. " +
             "Set truncateAtEndMarker to keep only the response through that marker. " +
             "notes is written to the Repeater tab Notes field."
@@ -573,7 +572,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<SetRepeaterNotes>(
-        "Writes the Notes field of a Repeater tab opened by MCP. The note is kept with the tab and written into the Repeater Notes field when that field is visible."
+        "Writes the Notes panel of one Repeater tab opened by MCP. The note is stored for that tab and typed into its Notes editor."
     ) {
         val tab = RepeaterSession.get(tabName)
             ?: return@mcpTool "No Repeater tab named '$tabName'."
@@ -584,7 +583,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         if (written) {
             "Updated Repeater notes on '$tabName'."
         } else {
-            "Saved Repeater notes on '$tabName'. The Notes field was not visible, so open that tab to see them."
+            "Saved Repeater notes for '$tabName' in this session. Burp's Notes panel for that tab could not be updated."
         }
     }
 

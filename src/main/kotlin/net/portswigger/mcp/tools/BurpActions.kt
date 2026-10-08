@@ -90,8 +90,8 @@ internal fun issueRepeaterTab(
                 RepeaterSession.save(tab)
                 return repeaterResult(
                     tab = tab,
-                    issuedBy = "Repeater tab Send button",
-                    detail = "The request was sent from Repeater tab '${tab.name}'. The response below is what that tab showed."
+                    issuedBy = "Repeater tab ${ui.via}",
+                    detail = "The request was sent from Repeater tab '${tab.name}' using ${ui.via}. The response below is what that tab showed."
                 )
             }
 
@@ -99,7 +99,11 @@ internal fun issueRepeaterTab(
                 return ui.detail + "\nThe request was not sent a second time through the HTTP API."
             }
 
-            RepeaterUiSend.NotAvailable -> Unit
+            is RepeaterUiSend.NotAvailable -> {
+                return ui.detail +
+                    "\nThe request stayed in Repeater tab '${tab.name}'. " +
+                    "Pass issueFrom http to send that same request with Http.sendRequest instead."
+            }
         }
     }
 
@@ -129,12 +133,7 @@ internal fun issueRepeaterTab(
     tab.lastResponse = raw
     RepeaterSession.save(tab)
 
-    val why = if (fromUi) {
-        "Repeater has no Send method in the Montoya API, and the Send button was not available. " +
-            "The request open in tab '${tab.name}' was issued with Http.sendRequest on connection '$connection'."
-    } else {
-        "Issued with Http.sendRequest on connection '$connection' for Repeater tab '${tab.name}'."
-    }
+    val why = "Issued with Http.sendRequest on connection '$connection' for Repeater tab '${tab.name}'."
     return repeaterResult(tab, "Burp HTTP API", why)
 }
 

@@ -6,11 +6,19 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.GraphicsEnvironment
+import java.awt.Toolkit
+import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
+import javax.swing.AbstractAction
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JFrame
 import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JTabbedPane
 import javax.swing.JTextArea
+import javax.swing.JTextPane
+import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.border.TitledBorder
 import org.junit.jupiter.api.Assumptions
@@ -113,6 +121,116 @@ class ResponseEndTest {
             assertTrue((sent as RepeaterUiSend.Response).text.contains("hello END"))
             assertTrue(RepeaterUi.trySetNotes(frame, "history-7", "checked"))
             assertEquals("checked", notes.text)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `send button is found from its tooltip when getToolTipText is hidden`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val response = JTextArea("")
+        val request = JTextArea("POST /login HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        val send = object : JButton() {
+            override fun getToolTipText(): String? = null
+        }
+        send.toolTipText = "Send Ctrl+Enter"
+        send.addActionListener { response.text = "HTTP/1.1 204 No Content\r\n\r\n" }
+        val panel = JPanel(BorderLayout())
+        panel.add(send, BorderLayout.NORTH)
+        panel.add(request, BorderLayout.WEST)
+        panel.add(response, BorderLayout.CENTER)
+        val sub = JTabbedPane()
+        sub.addTab("login", panel)
+        val top = JTabbedPane()
+        top.addTab("Repeater", sub)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(800, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "login", 2_000)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertTrue(sent.text.contains("204"))
+            assertEquals("Send button", sent.via)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `ctrl enter on the request editor sends when the button is absent`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val response = JTextArea("")
+        val request = JTextArea("GET /shortcut HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        val actionKey = "repeater-send"
+        request.actionMap.put(actionKey, object : AbstractAction() {
+            override fun actionPerformed(event: ActionEvent) {
+                response.text = "HTTP/1.1 200 OK\r\n\r\nfrom-shortcut"
+            }
+        })
+        val stroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx)
+        request.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(stroke, actionKey)
+        val panel = JPanel(BorderLayout())
+        panel.add(request, BorderLayout.WEST)
+        panel.add(response, BorderLayout.CENTER)
+        val sub = JTabbedPane()
+        sub.addTab("shortcut", panel)
+        val top = JTabbedPane()
+        top.addTab("Repeater", sub)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(800, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "shortcut", 2_000)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertTrue(sent.text.contains("from-shortcut"))
+            assertEquals("Send shortcut", sent.via)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `notes are written into the notes tab rather than a titled border`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val notes = JTextPane()
+        var committed = false
+        notes.addFocusListener(object : java.awt.event.FocusAdapter() {
+            override fun focusLost(event: java.awt.event.FocusEvent) {
+                committed = notes.text == "checked in notes"
+            }
+        })
+        val side = JTabbedPane()
+        side.addTab("Inspector", JPanel())
+        side.addTab("Notes", JScrollPane(notes))
+        val request = JTextArea("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        val panel = JPanel(BorderLayout())
+        panel.add(request, BorderLayout.CENTER)
+        panel.add(side, BorderLayout.EAST)
+        val sub = JTabbedPane()
+        sub.addTab("history-9", panel)
+        val top = JTabbedPane()
+        top.addTab("Repeater", sub)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+        }
+        try {
+            assertTrue(RepeaterUi.trySetNotes(frame, "history-9", "checked in notes"))
+            assertEquals("checked in notes", notes.text)
+            assertTrue(committed)
+            assertEquals(side.indexOfTab("Notes"), side.selectedIndex)
         } finally {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }
