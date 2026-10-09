@@ -14,6 +14,7 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.AbstractAction
+import javax.swing.ButtonGroup
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JFrame
@@ -23,6 +24,7 @@ import javax.swing.JScrollPane
 import javax.swing.JTabbedPane
 import javax.swing.JTextArea
 import javax.swing.JTextPane
+import javax.swing.JToggleButton
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.border.TitledBorder
@@ -235,7 +237,7 @@ class ResponseEndTest {
             assertTrue(RepeaterUi.trySetNotes(frame, "history-9", "checked in notes"))
             assertEquals("checked in notes", notes.text)
             assertTrue(committed)
-            assertEquals(side.indexOfTab("Notes"), side.selectedIndex)
+            assertEquals(side.indexOfTab("Inspector"), side.selectedIndex)
         } finally {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }
@@ -362,7 +364,7 @@ class ResponseEndTest {
     }
 
     @Test
-    fun `repeater tool button is selected when it is not a suite tab`() {
+    fun `repeater send leaves the other suite card visible`() {
         Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
 
         val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
@@ -385,8 +387,9 @@ class ResponseEndTest {
         repeater.add(bar, BorderLayout.NORTH)
         repeater.add(request, BorderLayout.WEST)
         repeater.add(response, BorderLayout.CENTER)
+        val other = JPanel()
         val cards = JPanel(CardLayout())
-        cards.add(JPanel(), "other")
+        cards.add(other, "other")
         cards.add(repeater, "repeater")
         val nav = JButton("Repeater")
         nav.addActionListener { (cards.layout as CardLayout).show(cards, "repeater") }
@@ -401,6 +404,8 @@ class ResponseEndTest {
             val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
             check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
             assertTrue(response.text.contains("from-nav"))
+            assertTrue(other.isShowing)
+            assertFalse(repeater.isShowing)
         } finally {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }
@@ -472,11 +477,16 @@ class ResponseEndTest {
         })
         val notesCard = JPanel(BorderLayout())
         notesCard.add(notes, BorderLayout.CENTER)
+        val inspector = JPanel()
         val cards = JPanel(CardLayout())
-        cards.add(JPanel(), "inspector")
+        cards.add(inspector, "inspector")
         cards.add(notesCard, "notes")
+        var notesShown = false
         val showNotes = JButton("Notes")
-        showNotes.addActionListener { (cards.layout as CardLayout).show(cards, "notes") }
+        showNotes.addActionListener {
+            notesShown = true
+            (cards.layout as CardLayout).show(cards, "notes")
+        }
         val panel = JPanel(BorderLayout())
         panel.add(JLabel("check123"), BorderLayout.NORTH)
         panel.add(JTextArea(requestText), BorderLayout.CENTER)
@@ -496,7 +506,89 @@ class ResponseEndTest {
             assertEquals(note, notes.text.trimEnd('\n', '\r'))
             assertTrue(notes.isEditable)
             assertTrue(committed)
-            assertTrue(notesCard.isShowing)
+            assertTrue(inspector.isShowing)
+            assertFalse(notesCard.isShowing)
+            assertFalse(notesShown)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `send leaves the proxy card and the manual repeater tab selected`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val response = JTextArea("")
+        var selectedAtSend = ""
+        val tabs = ButtonGroup()
+        val manual = JToggleButton("manual-tab")
+        val target = JToggleButton("check123")
+        tabs.add(manual)
+        tabs.add(target)
+        manual.isSelected = true
+
+        val send = JPanel(BorderLayout())
+        send.name = "repeaterSendButton"
+        send.preferredSize = Dimension(88, 28)
+        send.add(JLabel("Send"), BorderLayout.CENTER)
+        send.addMouseListener(object : MouseAdapter() {
+            override fun mouseReleased(event: MouseEvent) {
+                if (!send.contains(event.point)) return
+                selectedAtSend = when {
+                    target.isSelected -> "check123"
+                    manual.isSelected -> "manual-tab"
+                    else -> "none"
+                }
+                response.text = "HTTP/1.1 200 OK\r\n\r\nfrom-background"
+            }
+        })
+
+        val proxyCard = JPanel(BorderLayout())
+        proxyCard.add(JLabel("Proxy history"), BorderLayout.CENTER)
+        val repeaterCard = JPanel(BorderLayout())
+        val bar = JPanel()
+        bar.add(manual)
+        bar.add(target)
+        bar.add(send)
+        repeaterCard.add(bar, BorderLayout.NORTH)
+        repeaterCard.add(JTextArea(requestText), BorderLayout.WEST)
+        repeaterCard.add(response, BorderLayout.CENTER)
+
+        val cards = JPanel(CardLayout())
+        cards.add(proxyCard, "proxy")
+        cards.add(repeaterCard, "repeater")
+
+        val tools = ButtonGroup()
+        val proxyTool = JToggleButton("Proxy")
+        val repeaterTool = JToggleButton("Repeater")
+        tools.add(proxyTool)
+        tools.add(repeaterTool)
+        proxyTool.isSelected = true
+        proxyTool.addActionListener { (cards.layout as CardLayout).show(cards, "proxy") }
+        repeaterTool.addActionListener { (cards.layout as CardLayout).show(cards, "repeater") }
+
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            val nav = JPanel()
+            nav.add(proxyTool)
+            nav.add(repeaterTool)
+            frame.contentPane.add(nav, BorderLayout.WEST)
+            frame.contentPane.add(cards, BorderLayout.CENTER)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "check123", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertTrue(sent.text.contains("from-background"))
+            assertEquals("check123", selectedAtSend)
+            assertTrue(proxyCard.isShowing)
+            assertFalse(repeaterCard.isShowing)
+            assertTrue(manual.isSelected)
+            assertFalse(target.isSelected)
+            assertTrue(proxyTool.isSelected)
+            assertFalse(repeaterTool.isSelected)
         } finally {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }

@@ -164,13 +164,13 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
-    mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found.") {
+    mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found. The Burp tool and Repeater tab that are already open stay as they are.") {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         openRepeaterTab(api, request, tabName, HttpMode.HTTP_1, notes)
     }
 
-    mcpTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter. The request is not sent until send_repeater_request.") {
+    mcpTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter. The request is not sent until send_repeater_request. The Burp tool and Repeater tab that are already open stay as they are.") {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         openRepeaterTab(api, request, tabName, HttpMode.HTTP_2, notes)
@@ -516,6 +516,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<SendProxyHistoryToRepeater>(
         "Sends one proxy HTTP history item to a Repeater tab using Repeater.sendToRepeater. " +
+            "The Burp tool and Repeater tab that are already open stay as they are. " +
             "Pass historyId from get_proxy_http_history_summary. " +
             "useFinalRequest selects the request Burp actually sent after proxy match-and-replace. " +
             "Notes are copied from the history item unless notes is set or copyNotes is false. " +
@@ -552,7 +553,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<SendRepeaterRequest>(
         "Clicks Send in the named Repeater tab and returns the response shown in that tab's response pane. " +
-            "The request leaves from Repeater. Leave issueFrom unset so the response appears in the tab. " +
+            "The request leaves from Repeater. The Burp tool and Repeater tab that are already open stay as they are, so manual testing can continue. " +
+            "Leave issueFrom unset so the response appears in the tab. " +
             "issueFrom http is only a fallback when Repeater Send cannot be clicked, and that fallback does not fill the response pane. " +
             "responseEndMarker is the literal word or characters that mark the end of the server response. " +
             "Set truncateAtEndMarker to keep only the response through that marker. " +
@@ -573,7 +575,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<SetRepeaterNotes>(
-        "Writes the Notes panel of one Repeater tab opened by MCP. The note is stored for that tab and typed into its Notes editor."
+        "Writes the Notes panel of one Repeater tab opened by MCP. The note is stored for that tab and typed into its Notes editor. The Burp tool and Repeater tab that are already open stay as they are."
     ) {
         val tab = RepeaterSession.get(tabName)
             ?: return@mcpTool "No Repeater tab named '$tabName'."

@@ -22,7 +22,10 @@ internal fun openRepeaterTab(
     notes: String?
 ): String {
     val name = requestedName?.takeIf { it.isNotBlank() } ?: "mcp-${System.nanoTime().toString(16)}"
-    api.repeater().sendToRepeater(request, name)
+    val frame = suiteFrame(api)
+    RepeaterUi.preservingView(frame) {
+        api.repeater().sendToRepeater(request, name)
+    }
     val stored = RepeaterSession.get(name) ?: StoredRepeaterTab(name, request, httpMode)
     stored.request = request
     stored.httpMode = httpMode
@@ -30,7 +33,6 @@ internal fun openRepeaterTab(
     stored.connectionId = stored.connectionId ?: RepeaterSession.connectionIdFor(name)
     RepeaterSession.save(stored)
 
-    val frame = suiteFrame(api)
     val notesWritten = if (notes != null) {
         RepeaterUi.trySetNotes(frame, name, notes, expectedRequest = request.toString())
     } else {
@@ -67,7 +69,10 @@ internal fun issueRepeaterTab(
         val service = tab.request.httpService()
         tab.request = HttpRequest.httpRequest(service, normalizeHttpContent(replacementContent))
         if (httpModeName == null) tab.httpMode = HttpMode.HTTP_1
-        api.repeater().sendToRepeater(tab.request, tab.name)
+        val opened = suiteFrame(api)
+        RepeaterUi.preservingView(opened) {
+            api.repeater().sendToRepeater(tab.request, tab.name)
+        }
     }
     if (httpModeName != null) tab.httpMode = parseHttpMode(httpModeName)
     if (notes != null) tab.notes = notes

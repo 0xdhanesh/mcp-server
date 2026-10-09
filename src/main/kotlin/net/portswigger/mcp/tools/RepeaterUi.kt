@@ -1,8 +1,10 @@
 package net.portswigger.mcp.tools
 
+import java.awt.CardLayout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Frame
+import java.awt.KeyboardFocusManager
 import java.awt.Toolkit
 import java.awt.event.ActionEvent
 import java.awt.event.FocusEvent
@@ -36,6 +38,11 @@ import javax.swing.text.JTextComponent
  * it. Older builds still use an icon button whose tooltip is Send. The Notes
  * editor in Burp 2026.9 is a text pane named notesCollapsibleViewTextArea.
  * Older builds keep that editor behind a Notes tab.
+ *
+ * Send and notes select the target Repeater tab only while the Swing event
+ * runs, then put the suite tool, the open Repeater tab, and the keyboard
+ * focus back before that event paints. A later Burp event that re-selects
+ * the same tab is put back as well. The tool the user is in stays usable.
  */
 internal sealed class RepeaterUiSend {
     data class Response(val text: String, val via: String = "Repeater Send") : RepeaterUiSend()
@@ -59,27 +66,40 @@ internal object RepeaterUi {
         while (fired == null && System.currentTimeMillis() < deadline) {
             val elapsed = timeoutMs - (deadline - System.currentTimeMillis())
             fired = runCatching {
-                onEdt {
-                    val tab = searchRoots(frame).firstNotNullOfOrNull { root ->
-                        revealRepeaterTab(root, tabName, expectedRequest)
-                    } ?: return@onEdt null
-                    val control = findSendControl(tab, expectedRequest)
-                    val editor = requestEditor(tab)
-                    val shortcut = editor != null && hasSendShortcut(editor)
-                    val ready = control?.takeIf { it.isEnabled && clickHasSize(it) }
-                    if (ready == null && !(shortcut && (control == null || elapsed > 1_500))) {
-                        return@onEdt null
+                preservingView(frame) {
+                    var tab = openedRepeaterTab(frame, tabName, expectedRequest)
+                    var control = tab?.let { findSendControl(it, expectedRequest) }
+                    if (tab == null || control == null) {
+                        searchRoots(frame).forEach { activateTool(it, "Repeater") }
+                        tab = openedRepeaterTab(frame, tabName, expectedRequest)
+                        control = tab?.let { findSendControl(it, expectedRequest) }
                     }
-                    val before = editorTexts(tab)
+                    var target = tab ?: return@preservingView null
+                    var sendControl = control
+                    // A shared editor still holds the other tab until this one is selected.
+                    // Showing Repeater updates that editor. The view is restored before paint.
+                    if (!requestMatches(target, expectedRequest)) {
+                        searchRoots(frame).forEach { activateTool(it, "Repeater") }
+                        target = openedRepeaterTab(frame, tabName, expectedRequest) ?: return@preservingView null
+                        sendControl = findSendControl(target, expectedRequest)
+                        if (!requestMatches(target, expectedRequest)) return@preservingView null
+                    }
+                    val editor = requestEditor(target)
+                    val shortcut = editor != null && hasSendShortcut(editor)
+                    val ready = sendControl?.takeIf { it.isEnabled && clickHasSize(it) }
+                    if (ready == null && !(shortcut && (sendControl == null || elapsed > 1_500))) {
+                        return@preservingView null
+                    }
+                    val before = editorTexts(target)
                     val via = if (ready != null) {
                         pressSend(ready)
                         "Send button"
                     } else if (editor != null && fireSendShortcut(editor)) {
                         "Send shortcut"
                     } else {
-                        return@onEdt null
+                        return@preservingView null
                     }
-                    FiredSend(tab, before, via)
+                    FiredSend(target, before, via)
                 }
             }.getOrNull()
             if (fired == null) Thread.sleep(150)
@@ -90,7 +110,14 @@ internal object RepeaterUi {
         var latestHttp = ""
         var latest = ""
         while (System.currentTimeMillis() < responseDeadline) {
-            val texts = runCatching { onEdt { editorTexts(sent.tab) } }.getOrDefault(emptyList())
+            // The response editor is shared. Select the target, read, then restore
+            // in the same event so the user's tab is what stays on screen.
+            val texts = runCatching {
+                preservingView(frame) {
+                    val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: sent.tab
+                    editorTexts(tab)
+                }
+            }.getOrDefault(emptySet())
             val fresh = texts.firstOrNull { looksLikeHttpResponse(it) && it !in sent.before }
             if (fresh != null) return RepeaterUiSend.Response(fresh, sent.via)
             latestHttp = texts.firstOrNull { looksLikeHttpResponse(it) }.orEmpty()
@@ -124,10 +151,10 @@ internal object RepeaterUi {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val wrote = runCatching {
-                onEdt {
-                    val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: frame
-                    val field = findNotesField(tab) ?: return@onEdt false
-                    if (!writeNotes(field, notes)) return@onEdt false
+                preservingView(frame) {
+                    val field = notesField(frame, tabName, expectedRequest) ?: return@preservingView false
+                    if (!writeNotes(field, notes)) return@preservingView false
+                    // focusLost persists onto the tab that is selected right now.
                     commitEditor(field)
                     notesMatch(notesText(field), notes)
                 }
@@ -140,9 +167,8 @@ internal object RepeaterUi {
             // Confirm the text is still there on the next pass before reporting success.
             Thread.sleep(200)
             val stuck = runCatching {
-                onEdt {
-                    val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: frame
-                    val field = findNotesField(tab) ?: return@onEdt false
+                preservingView(frame) {
+                    val field = notesField(frame, tabName, expectedRequest) ?: return@preservingView false
                     notesMatch(notesText(field), notes)
                 }
             }.getOrDefault(false)
@@ -159,11 +185,36 @@ internal object RepeaterUi {
     fun tryReadRequest(frame: Frame?, tabName: String, expectedRequest: String? = null): String? {
         if (frame == null) return null
         return runCatching {
-            onEdt {
-                val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: return@onEdt null
+            preservingView(frame) {
+                val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: return@preservingView null
+                if (!requestMatches(tab, expectedRequest)) return@preservingView null
                 requestEditor(tab)?.text
             }
         }.getOrNull()
+    }
+
+    /**
+     * Selects whatever [block] needs, then restores the suite tool, Repeater
+     * tab, and focus before this Swing event returns. Burp paints once, with
+     * the user's place still selected. One later pass restores again when
+     * Burp itself re-selects the tab this call just selected.
+     */
+    fun <T> preservingView(frame: Frame?, block: () -> T): T {
+        if (frame == null || runCatching { !frame.isDisplayable }.getOrDefault(true)) {
+            return onEdt { block() }
+        }
+        return onEdt {
+            val original = markView(searchRoots(frame))
+            try {
+                block()
+            } finally {
+                val automated = markView(searchRoots(frame))
+                restoreView(original, restoreFocus = true)
+                SwingUtilities.invokeLater {
+                    runCatching { restoreIfStillAutomated(original, automated) }
+                }
+            }
+        }
     }
 
     fun suiteFrameOrNull(frameProvider: () -> Frame?): Frame? = runCatching { frameProvider() }.getOrNull()
@@ -192,8 +243,23 @@ private fun searchRoots(frame: Frame): List<Component> {
     return listOf(frame) + others
 }
 
+private fun openedRepeaterTab(frame: Frame, tabName: String, expectedRequest: String?): Component? {
+    return searchRoots(frame).firstNotNullOfOrNull { root ->
+        revealRepeaterTab(root, tabName, expectedRequest)
+    }
+}
+
+private fun notesField(frame: Frame, tabName: String, expectedRequest: String?): JTextComponent? {
+    fun locate(): JTextComponent? {
+        val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: frame
+        return findNotesField(tab)
+    }
+    locate()?.let { return it }
+    searchRoots(frame).forEach { activateTool(it, "Repeater") }
+    return locate()
+}
+
 private fun revealRepeaterTab(frame: Component, tabName: String, expectedRequest: String? = null): Component? {
-    activateTool(frame, "Repeater")
     val suite = suiteContent(frame, "Repeater") ?: frame
     selectSubTab(suite, tabName)?.let { return it }
     // Current Repeater paints the request caption on its own tab strip, not as a suite JTabbedPane title.
@@ -353,14 +419,21 @@ private fun nearExpectedRequest(component: Component, expectedRequest: String?):
 
 private fun clickHasSize(component: Component): Boolean {
     if (component is AbstractButton) return true
-    // A hidden tab keeps its Send panel in the tree. Click only the one on screen.
-    return component.isShowing && component.width > 0 && component.height > 0
+    if (component.width > 0 && component.height > 0) return true
+    val preferred = component.preferredSize ?: return false
+    return preferred.width > 0 && preferred.height > 0
 }
 
 private fun pressSend(component: Component) {
     if (component is AbstractButton) {
         component.doClick(0)
         return
+    }
+    // The listener accepts the click when the panel contains the point. A tab
+    // that is not on screen can still have a zero size, so give it one first.
+    if (component.width <= 1 || component.height <= 1) {
+        val preferred = component.preferredSize
+        component.setSize(preferred.width.coerceAtLeast(2), preferred.height.coerceAtLeast(2))
     }
     dispatchClick(component)
 }
@@ -426,7 +499,8 @@ private fun sendAction(editor: JTextComponent): Pair<Any, javax.swing.Action>? {
 private const val NOTES_EDITOR_NAME = "notesCollapsibleViewTextArea"
 
 private fun findNotesField(tab: Component): JTextComponent? {
-    namedNotesEditor(tab)?.takeIf { it.isShowing }?.let { return it }
+    // The named editor stays in the tree while Inspector is the visible side panel.
+    namedNotesEditor(tab)?.let { return it }
 
     val titled = walk(tab).firstOrNull { component ->
         val border = (component as? JComponent)?.border
@@ -436,19 +510,31 @@ private fun findNotesField(tab: Component): JTextComponent? {
         walk(titled).filterIsInstance<JTextComponent>().firstOrNull { !isHttpMessage(it) }?.let { return it }
     }
 
+    hiddenNotesEditor(tab)?.let { return it }
+
     walk(tab).filterIsInstance<JTextComponent>().firstOrNull { field ->
         !isHttpMessage(field) && hasWord(componentLabel(field), "note")
     }?.let { return it }
 
-    val notesRoot = revealNotesContainer(tab)
-    namedNotesEditor(tab)?.let { return it }
-    if (notesRoot == null) return namedNotesEditor(tab)
-    val editors = walk(notesRoot).filterIsInstance<JTextComponent>().filter { !isHttpMessage(it) }.toList()
-    return editors.filterIsInstance<JTextPane>().firstOrNull { it.isShowing }
-        ?: editors.filterIsInstance<JTextPane>().firstOrNull()
-        ?: editors.firstOrNull { it.isShowing }
-        ?: editors.firstOrNull()
-        ?: namedNotesEditor(tab)
+    val notesRoot = revealNotesContainer(tab) ?: return namedNotesEditor(tab)
+    return editorsIn(notesRoot) ?: namedNotesEditor(tab)
+}
+
+private fun hiddenNotesEditor(tab: Component): JTextComponent? {
+    val pane = walk(tab).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
+        indices(candidate).any { index -> isNotesTab(candidate, index) }
+    } ?: return null
+    val index = indices(pane).first { index -> isNotesTab(pane, index) }
+    return editorsIn(pane.getComponentAt(index))
+}
+
+private fun isNotesTab(pane: JTabbedPane, index: Int): Boolean {
+    return tabTitle(pane, index).equals("Notes", ignoreCase = true) || tabMatches(pane, index, "Notes")
+}
+
+private fun editorsIn(root: Component): JTextComponent? {
+    val editors = walk(root).filterIsInstance<JTextComponent>().filter { !isHttpMessage(it) }.toList()
+    return editors.filterIsInstance<JTextPane>().firstOrNull() ?: editors.firstOrNull()
 }
 
 private fun namedNotesEditor(root: Component): JTextComponent? {
@@ -460,14 +546,10 @@ private fun namedNotesEditor(root: Component): JTextComponent? {
 
 private fun revealNotesContainer(tab: Component): Component? {
     val pane = walk(tab).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
-        indices(candidate).any { index ->
-            tabTitle(candidate, index).equals("Notes", ignoreCase = true) || tabMatches(candidate, index, "Notes")
-        }
+        indices(candidate).any { index -> isNotesTab(candidate, index) }
     }
     if (pane != null) {
-        val index = indices(pane).first { index ->
-            tabTitle(pane, index).equals("Notes", ignoreCase = true) || tabMatches(pane, index, "Notes")
-        }
+        val index = indices(pane).first { index -> isNotesTab(pane, index) }
         pane.selectedIndex = index
         return pane.getComponentAt(index)
     }
@@ -605,6 +687,112 @@ private fun isHttpMessage(field: JTextComponent): Boolean {
 }
 
 private fun looksLikeHttpResponse(text: String): Boolean = text.trimStart().startsWith("HTTP/")
+
+private fun requestMatches(root: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return true
+    val requests = walk(root).mapNotNull { component ->
+        val text = componentText(component) ?: return@mapNotNull null
+        if (!looksLikeHttpRequest(text)) return@mapNotNull null
+        component.isShowing to text
+    }.toList()
+    if (requests.isEmpty()) return true
+    val showing = requests.filter { it.first }
+    val relevant = if (showing.isNotEmpty()) showing else requests
+    return relevant.any { it.second.contains(needle) }
+}
+
+private data class ViewMark(
+    val tabs: List<Pair<JTabbedPane, Int>>,
+    val selectedButtons: List<AbstractButton>,
+    val cards: List<Pair<Container, Component>>,
+    val focus: Component?
+)
+
+private fun markView(roots: List<Component>): ViewMark {
+    val tabs = mutableListOf<Pair<JTabbedPane, Int>>()
+    val buttons = mutableListOf<AbstractButton>()
+    val cards = mutableListOf<Pair<Container, Component>>()
+    for (root in roots) {
+        for (component in walk(root)) {
+            if (component is JTabbedPane && component.tabCount > 0) {
+                tabs += component to component.selectedIndex
+            }
+            if (component is AbstractButton && component.isSelected) {
+                buttons += component
+            }
+            if (component is Container && component.layout is CardLayout) {
+                val visible = component.components.firstOrNull { it.isVisible }
+                if (visible != null) cards += component to visible
+            }
+        }
+    }
+    val focus = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    return ViewMark(tabs, buttons, cards, focus)
+}
+
+private fun restoreView(mark: ViewMark, restoreFocus: Boolean) {
+    for ((pane, index) in mark.tabs) {
+        runCatching {
+            if (index in 0 until pane.tabCount && pane.selectedIndex != index) {
+                pane.selectedIndex = index
+            }
+        }
+    }
+    for (button in mark.selectedButtons) {
+        runCatching {
+            if (button.isDisplayable && !button.isSelected) button.doClick(0)
+        }
+    }
+    for ((parent, wanted) in mark.cards) {
+        runCatching { showCard(parent, wanted) }
+    }
+    if (!restoreFocus) return
+    val owner = mark.focus ?: return
+    val current = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    if (owner !== current && owner.isShowing) {
+        runCatching { owner.requestFocusInWindow() }
+    }
+}
+
+/**
+ * Puts back a tool or tab this call selected when that selection is still in
+ * place. A selection the user made after the call is left alone.
+ */
+private fun restoreIfStillAutomated(original: ViewMark, automated: ViewMark) {
+    for ((pane, originalIndex) in original.tabs) {
+        val automatedIndex = automated.tabs.firstOrNull { it.first === pane }?.second ?: continue
+        if (automatedIndex == originalIndex || originalIndex !in 0 until pane.tabCount) continue
+        if (pane.selectedIndex == automatedIndex) pane.selectedIndex = originalIndex
+    }
+    val stuckButton = automated.selectedButtons.any { button ->
+        button.isSelected && original.selectedButtons.none { it === button }
+    }
+    if (stuckButton) {
+        for (button in original.selectedButtons) {
+            runCatching {
+                if (button.isDisplayable && !button.isSelected) button.doClick(0)
+            }
+        }
+    }
+    for ((parent, originalChild) in original.cards) {
+        val automatedChild = automated.cards.firstOrNull { it.first === parent }?.second ?: continue
+        if (automatedChild === originalChild) continue
+        val current = parent.components.firstOrNull { it.isVisible }
+        if (current === automatedChild) showCard(parent, originalChild)
+    }
+}
+
+private fun showCard(parent: Container, wanted: Component) {
+    if (wanted.isVisible) return
+    val layout = parent.layout as? CardLayout ?: return
+    val count = parent.componentCount
+    if (count <= 0) return
+    repeat(count) {
+        if (wanted.isVisible) return
+        layout.next(parent)
+    }
+}
 
 private fun looksLikeHttpRequest(text: String): Boolean {
     val start = text.trimStart()
