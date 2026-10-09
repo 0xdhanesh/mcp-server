@@ -14,6 +14,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import net.portswigger.mcp.ExtensionVersion
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.schema.encodeHistoryItem
 import net.portswigger.mcp.schema.toSerializableForm
@@ -226,7 +227,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     val toolingDisabledMessage =
-        "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
+        "User has disabled configuration editing. They can enable it in the ${ExtensionVersion.TAB_TITLE} tab in Burp by selecting 'Enable tools that can edit your config'"
 
     mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Make sure to export before doing this, so you know what the schema is. Make sure the JSON has a top level 'user_options' object!") {
         if (config.configEditingTooling) {

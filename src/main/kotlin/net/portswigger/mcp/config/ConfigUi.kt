@@ -4,6 +4,7 @@ import io.ktor.util.network.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import net.portswigger.mcp.ExtensionVersion
 import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.Swing
 import net.portswigger.mcp.config.components.*
@@ -144,7 +145,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     }
 
                     Dialogs.showMessageDialog(
-                        panel, "Failed to start Burp MCP Server: $friendlyMessage", ERROR_MESSAGE
+                        panel, "Failed to start ${ExtensionVersion.NAME}: $friendlyMessage", ERROR_MESSAGE
                     )
                 }
             }
@@ -157,7 +158,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         val leftPanel = JPanel(GridBagLayout())
 
         val headerBox = createVerticalBox().apply {
-            add(JLabel("Burp MCP Server").apply {
+            add(JLabel(ExtensionVersion.NAME).apply {
                 font = Design.Typography.headlineMedium
                 foreground = Design.Colors.onSurface
                 alignmentX = CENTER_ALIGNMENT

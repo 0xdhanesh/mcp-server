@@ -32,6 +32,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import net.portswigger.mcp.ExtensionVersion
 import net.portswigger.mcp.KtorServerManager
 import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.TestSseMcpClient
@@ -634,7 +635,7 @@ class ToolsKtTest {
                 )
                 
                 delay(100)
-                result.expectTextContent("User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'")
+                result.expectTextContent("User has disabled configuration editing. They can enable it in the ${ExtensionVersion.TAB_TITLE} tab in Burp by selecting 'Enable tools that can edit your config'")
             }
             
             verify(exactly = 0) { burpSuite.importProjectOptionsFromJson(any()) }
