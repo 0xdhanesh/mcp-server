@@ -1,0 +1,828 @@
+package net.portswigger.mcp.tools
+
+import java.awt.CardLayout
+import java.awt.Component
+import java.awt.Container
+import java.awt.Frame
+import java.awt.KeyboardFocusManager
+import java.awt.Toolkit
+import java.awt.event.ActionEvent
+import java.awt.event.FocusEvent
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
+import java.util.ArrayDeque
+import java.util.Collections
+import java.util.IdentityHashMap
+import javax.swing.AbstractButton
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JTabbedPane
+import javax.swing.JTextPane
+import javax.swing.KeyStroke
+import javax.swing.SwingUtilities
+import javax.swing.border.TitledBorder
+import javax.swing.text.JTextComponent
+
+/**
+ * Best-effort bridge onto the Repeater window.
+ *
+ * Official Repeater methods only call [burp.api.montoya.repeater.Repeater.sendToRepeater].
+ * They do not click Send and they do not set the Notes field. These helpers
+ * look for those Swing controls after the official call has opened the tab.
+ * They never issue a second request.
+ *
+ * Burp 2026.9 names the Repeater Send control "repeaterSendButton". It is a
+ * panel, not a JButton. The visible word "Send" is a child label, and the
+ * tooltip is "Issue the request", so a search for a button titled Send misses
+ * it. Older builds still use an icon button whose tooltip is Send. The Notes
+ * editor in Burp 2026.9 is a text pane named notesCollapsibleViewTextArea.
+ * Older builds keep that editor behind a Notes tab.
+ *
+ * Send and notes select the target Repeater tab only while the Swing event
+ * runs, then put the suite tool, the open Repeater tab, and the keyboard
+ * focus back before that event paints. A later Burp event that re-selects
+ * the same tab is put back as well. The tool the user is in stays usable.
+ */
+internal sealed class RepeaterUiSend {
+    data class Response(val text: String, val via: String = "Repeater Send") : RepeaterUiSend()
+    data class ClickedUnreadable(val detail: String) : RepeaterUiSend()
+    data class NotAvailable(val detail: String) : RepeaterUiSend()
+}
+
+internal object RepeaterUi {
+    fun trySend(
+        frame: Frame?,
+        tabName: String,
+        timeoutMs: Long = 15_000,
+        expectedRequest: String? = null
+    ): RepeaterUiSend {
+        if (frame == null || runCatching { frame.isDisplayable }.getOrDefault(false) == false) {
+            return RepeaterUiSend.NotAvailable("Burp's window is not available, so Repeater Send could not be used.")
+        }
+
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var fired: FiredSend? = null
+        while (fired == null && System.currentTimeMillis() < deadline) {
+            val elapsed = timeoutMs - (deadline - System.currentTimeMillis())
+            fired = runCatching {
+                preservingView(frame) {
+                    var tab = openedRepeaterTab(frame, tabName, expectedRequest)
+                    var control = tab?.let { findSendControl(it, expectedRequest) }
+                    if (tab == null || control == null) {
+                        searchRoots(frame).forEach { activateTool(it, "Repeater") }
+                        tab = openedRepeaterTab(frame, tabName, expectedRequest)
+                        control = tab?.let { findSendControl(it, expectedRequest) }
+                    }
+                    var target = tab ?: return@preservingView null
+                    var sendControl = control
+                    // A shared editor still holds the other tab until this one is selected.
+                    // Showing Repeater updates that editor. The view is restored before paint.
+                    if (!requestMatches(target, expectedRequest)) {
+                        searchRoots(frame).forEach { activateTool(it, "Repeater") }
+                        target = openedRepeaterTab(frame, tabName, expectedRequest) ?: return@preservingView null
+                        sendControl = findSendControl(target, expectedRequest)
+                        if (!requestMatches(target, expectedRequest)) return@preservingView null
+                    }
+                    val editor = requestEditor(target)
+                    val shortcut = editor != null && hasSendShortcut(editor)
+                    val ready = sendControl?.takeIf { it.isEnabled && clickHasSize(it) }
+                    if (ready == null && !(shortcut && (sendControl == null || elapsed > 1_500))) {
+                        return@preservingView null
+                    }
+                    val before = editorTexts(target)
+                    val via = if (ready != null) {
+                        pressSend(ready)
+                        "Send button"
+                    } else if (editor != null && fireSendShortcut(editor)) {
+                        "Send shortcut"
+                    } else {
+                        return@preservingView null
+                    }
+                    FiredSend(target, before, via)
+                }
+            }.getOrNull()
+            if (fired == null) Thread.sleep(150)
+        }
+
+        val sent = fired ?: return RepeaterUiSend.NotAvailable(diagnose(frame, tabName))
+        val responseDeadline = System.currentTimeMillis() + timeoutMs
+        var latestHttp = ""
+        var latest = ""
+        while (System.currentTimeMillis() < responseDeadline) {
+            // The response editor is shared. Select the target, read, then restore
+            // in the same event so the user's tab is what stays on screen.
+            val texts = runCatching {
+                preservingView(frame) {
+                    val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: sent.tab
+                    editorTexts(tab)
+                }
+            }.getOrDefault(emptySet())
+            val fresh = texts.firstOrNull { looksLikeHttpResponse(it) && it !in sent.before }
+            if (fresh != null) return RepeaterUiSend.Response(fresh, sent.via)
+            latestHttp = texts.firstOrNull { looksLikeHttpResponse(it) }.orEmpty()
+            latest = texts.maxByOrNull { it.length }.orEmpty()
+            Thread.sleep(200)
+        }
+
+        if (latestHttp.isNotBlank() && latestHttp !in sent.before) {
+            return RepeaterUiSend.Response(latestHttp, sent.via)
+        }
+        if (latestHttp.isNotBlank()) return RepeaterUiSend.Response(latestHttp, sent.via)
+        return if (latest.isBlank()) {
+            RepeaterUiSend.ClickedUnreadable(
+                "${sent.via} ran in Repeater tab '$tabName', but no response text was visible yet."
+            )
+        } else {
+            RepeaterUiSend.ClickedUnreadable(
+                "${sent.via} ran in Repeater tab '$tabName'. The response pane did not look like an HTTP response yet.\n$latest"
+            )
+        }
+    }
+
+    fun trySetNotes(
+        frame: Frame?,
+        tabName: String,
+        notes: String,
+        timeoutMs: Long = 3_000,
+        expectedRequest: String? = null
+    ): Boolean {
+        if (frame == null) return false
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val wrote = runCatching {
+                preservingView(frame) {
+                    val field = notesField(frame, tabName, expectedRequest) ?: return@preservingView false
+                    if (!writeNotes(field, notes)) return@preservingView false
+                    // focusLost persists onto the tab that is selected right now.
+                    commitEditor(field)
+                    notesMatch(notesText(field), notes)
+                }
+            }.getOrDefault(false)
+            if (!wrote) {
+                Thread.sleep(150)
+                continue
+            }
+            // The Repeater tab binds its notes model after the tab is selected.
+            // Confirm the text is still there on the next pass before reporting success.
+            Thread.sleep(200)
+            val stuck = runCatching {
+                preservingView(frame) {
+                    val field = notesField(frame, tabName, expectedRequest) ?: return@preservingView false
+                    notesMatch(notesText(field), notes)
+                }
+            }.getOrDefault(false)
+            if (stuck) return true
+        }
+        return false
+    }
+
+    /**
+     * Reads the request currently shown in the named Repeater tab.
+     * Used when the official HTTP send has to stand in for the Send button,
+     * so the bytes match what the tab is showing.
+     */
+    fun tryReadRequest(frame: Frame?, tabName: String, expectedRequest: String? = null): String? {
+        if (frame == null) return null
+        return runCatching {
+            preservingView(frame) {
+                val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: return@preservingView null
+                if (!requestMatches(tab, expectedRequest)) return@preservingView null
+                requestEditor(tab)?.text
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Selects whatever [block] needs, then restores the suite tool, Repeater
+     * tab, and focus before this Swing event returns. Burp paints once, with
+     * the user's place still selected. One later pass restores again when
+     * Burp itself re-selects the tab this call just selected.
+     */
+    fun <T> preservingView(frame: Frame?, block: () -> T): T {
+        if (frame == null || runCatching { !frame.isDisplayable }.getOrDefault(true)) {
+            return onEdt { block() }
+        }
+        return onEdt {
+            val original = markView(searchRoots(frame))
+            try {
+                block()
+            } finally {
+                val automated = markView(searchRoots(frame))
+                restoreView(original, restoreFocus = true)
+                SwingUtilities.invokeLater {
+                    runCatching { restoreIfStillAutomated(original, automated) }
+                }
+            }
+        }
+    }
+
+    fun suiteFrameOrNull(frameProvider: () -> Frame?): Frame? = runCatching { frameProvider() }.getOrNull()
+}
+
+private data class FiredSend(val tab: Component, val before: Set<String>, val via: String)
+
+internal fun <T> onEdt(block: () -> T): T {
+    if (SwingUtilities.isEventDispatchThread()) return block()
+    val holder = arrayOfNulls<Any>(1)
+    var thrown: Throwable? = null
+    SwingUtilities.invokeAndWait {
+        try {
+            holder[0] = block()
+        } catch (t: Throwable) {
+            thrown = t
+        }
+    }
+    thrown?.let { throw it }
+    @Suppress("UNCHECKED_CAST")
+    return holder[0] as T
+}
+
+private fun searchRoots(frame: Frame): List<Component> {
+    val others = Frame.getFrames().filter { it !== frame && it.isDisplayable }
+    return listOf(frame) + others
+}
+
+private fun openedRepeaterTab(frame: Frame, tabName: String, expectedRequest: String?): Component? {
+    return searchRoots(frame).firstNotNullOfOrNull { root ->
+        revealRepeaterTab(root, tabName, expectedRequest)
+    }
+}
+
+private fun notesField(frame: Frame, tabName: String, expectedRequest: String?): JTextComponent? {
+    fun locate(): JTextComponent? {
+        val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: frame
+        return findNotesField(tab)
+    }
+    locate()?.let { return it }
+    searchRoots(frame).forEach { activateTool(it, "Repeater") }
+    return locate()
+}
+
+private fun revealRepeaterTab(frame: Component, tabName: String, expectedRequest: String? = null): Component? {
+    val suite = suiteContent(frame, "Repeater") ?: frame
+    selectSubTab(suite, tabName)?.let { return it }
+    // Current Repeater paints the request caption on its own tab strip, not as a suite JTabbedPane title.
+    if (activateCaption(suite, tabName)) {
+        selectSubTab(suite, tabName)?.let { return it }
+        return suite
+    }
+    if (showingExpectedRequest(suite, expectedRequest)) return suite
+    selectSubTab(frame, tabName)?.let { return it }
+    if (activateCaption(frame, tabName)) return suiteContent(frame, "Repeater") ?: frame
+    return null
+}
+
+private fun activateTool(frame: Component, title: String) {
+    if (suiteContent(frame, title) != null) {
+        selectSuiteTab(frame, title)
+        return
+    }
+    if (findSendControl(frame, null)?.isShowing == true) return
+    val button = walk(frame).filterIsInstance<AbstractButton>().firstOrNull { component ->
+        component.isShowing && textEquals(component, title)
+    } ?: return
+    button.doClick(0)
+}
+
+private fun textEquals(component: Component, wanted: String): Boolean {
+    val names = mutableListOf<String>()
+    if (component is AbstractButton) names += component.text.orEmpty()
+    if (component is JLabel) names += component.text.orEmpty()
+    if (component is JComponent) names += component.name.orEmpty()
+    return names.any { it.trim().equals(wanted, ignoreCase = true) }
+}
+
+private fun selectSuiteTab(frame: Component, title: String) {
+    val pane = walk(frame).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
+        indices(candidate).any { tabTitle(candidate, it).equals(title, ignoreCase = true) }
+    } ?: return
+    val index = indices(pane).first { tabTitle(pane, it).equals(title, ignoreCase = true) }
+    pane.selectedIndex = index
+}
+
+private fun suiteContent(frame: Component, title: String): Component? {
+    val pane = walk(frame).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
+        indices(candidate).any { tabTitle(candidate, it).equals(title, ignoreCase = true) }
+    } ?: return null
+    val index = indices(pane).first { tabTitle(pane, it).equals(title, ignoreCase = true) }
+    return pane.getComponentAt(index)
+}
+
+private fun selectSubTab(root: Component, tabName: String): Component? {
+    val panes = walk(root).filterIsInstance<JTabbedPane>().toList()
+    val exact = panes.firstNotNullOfOrNull { pane ->
+        val index = indices(pane).firstOrNull { tabTitle(pane, it).equals(tabName, ignoreCase = true) }
+        if (index == null) null else pane to index
+    }
+    val partial = exact ?: panes.firstNotNullOfOrNull { pane ->
+        val index = indices(pane).firstOrNull { tabMatches(pane, it, tabName) }
+        if (index == null) null else pane to index
+    } ?: return null
+    partial.first.selectedIndex = partial.second
+    return partial.first.getComponentAt(partial.second)
+}
+
+private fun tabMatches(pane: JTabbedPane, index: Int, tabName: String): Boolean {
+    if (tabTitle(pane, index).contains(tabName, ignoreCase = true)) return true
+    val tip = runCatching { pane.getToolTipTextAt(index) }.getOrNull()
+    if (tip?.contains(tabName, ignoreCase = true) == true) return true
+    val header = runCatching { pane.getTabComponentAt(index) }.getOrNull() ?: return false
+    return walk(header).any { componentLabel(it).contains(tabName.lowercase()) }
+}
+
+private fun tabTitle(pane: JTabbedPane, index: Int): String {
+    return runCatching { pane.getTitleAt(index) }.getOrNull().orEmpty()
+}
+
+private fun activateCaption(root: Component, tabName: String): Boolean {
+    val header = walk(root).firstOrNull { component ->
+        captionMatches(componentLabel(component), tabName) && !isPrimarySend(componentLabel(component))
+    } ?: return false
+    val button = when {
+        header is AbstractButton -> header
+        else -> generateSequence(header.parent) { it.parent }.filterIsInstance<AbstractButton>()
+            .firstOrNull { !isPrimarySend(componentLabel(it)) }
+    }
+    if (button != null) {
+        button.doClick(0)
+    } else {
+        val parent = header.parent
+        val target = if (parent != null && parent.mouseListeners.isNotEmpty() && parent !is Frame) parent else header
+        dispatchClick(target)
+    }
+    return true
+}
+
+private fun captionMatches(label: String, tabName: String): Boolean {
+    val wanted = tabName.trim().lowercase()
+    if (wanted.isEmpty() || label.isBlank()) return false
+    if (label == wanted) return true
+    // Tab strips truncate the caption and keep the full name only on the tooltip.
+    if (wanted.startsWith(label) && label.length >= 8) return true
+    if (label.length > wanted.length + 24) return false
+    return label.contains(wanted)
+}
+
+private fun showingExpectedRequest(root: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return false
+    return walk(root).any { component ->
+        component.isShowing && componentText(component)?.contains(needle) == true
+    }
+}
+
+private fun findSendControl(root: Component, expectedRequest: String?): Component? {
+    val named = walk(root).filterIsInstance<JComponent>().filter { isNamedSend(it) }
+    val buttons = walk(root).filterIsInstance<AbstractButton>().filter { isPrimarySend(componentLabel(it)) }
+    val labeled = walk(root).filter { it is JLabel && it.text?.trim().equals("Send", ignoreCase = true) }
+        .mapNotNull { clickableAround(it) }
+    return (named + buttons + labeled)
+        .distinct()
+        .sortedWith(compareBy<Component>(
+            { !it.isEnabled },
+            { !it.isShowing },
+            { !isNamedSend(it) },
+            { !nearExpectedRequest(it, expectedRequest) }
+        ))
+        .firstOrNull()
+}
+
+private fun isNamedSend(component: Component): Boolean {
+    val name = (component as? JComponent)?.name?.trim().orEmpty()
+    if (!name.equals("repeaterSendButton", ignoreCase = true)) return false
+    return !name.contains("option", ignoreCase = true)
+}
+
+private fun clickableAround(label: Component): Component? {
+    var current: Component? = label
+    var depth = 0
+    while (current != null && depth < 4) {
+        val name = (current as? JComponent)?.name.orEmpty()
+        if (name.contains("option", ignoreCase = true)) return null
+        if (current !== label && current.mouseListeners.isNotEmpty() && current !is Frame && current !is JTabbedPane) {
+            return current
+        }
+        current = current.parent
+        depth++
+    }
+    return null
+}
+
+private fun nearExpectedRequest(component: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return false
+    return generateSequence(component) { it.parent }.take(8).any { ancestor ->
+        walk(ancestor).any { child -> componentText(child)?.contains(needle) == true }
+    }
+}
+
+private fun clickHasSize(component: Component): Boolean {
+    if (component is AbstractButton) return true
+    if (component.width > 0 && component.height > 0) return true
+    val preferred = component.preferredSize ?: return false
+    return preferred.width > 0 && preferred.height > 0
+}
+
+private fun pressSend(component: Component) {
+    if (component is AbstractButton) {
+        component.doClick(0)
+        return
+    }
+    // The listener accepts the click when the panel contains the point. A tab
+    // that is not on screen can still have a zero size, so give it one first.
+    if (component.width <= 1 || component.height <= 1) {
+        val preferred = component.preferredSize
+        component.setSize(preferred.width.coerceAtLeast(2), preferred.height.coerceAtLeast(2))
+    }
+    dispatchClick(component)
+}
+
+private fun dispatchClick(component: Component) {
+    val width = component.width.takeIf { it > 1 } ?: component.preferredSize.width.coerceAtLeast(2)
+    val height = component.height.takeIf { it > 1 } ?: component.preferredSize.height.coerceAtLeast(2)
+    val x = width / 2
+    val y = height / 2
+    val whenMs = System.currentTimeMillis()
+    component.dispatchEvent(
+        MouseEvent(component, MouseEvent.MOUSE_PRESSED, whenMs, 0, x, y, 1, false, MouseEvent.BUTTON1)
+    )
+    component.dispatchEvent(
+        MouseEvent(component, MouseEvent.MOUSE_RELEASED, whenMs, 0, x, y, 1, false, MouseEvent.BUTTON1)
+    )
+}
+
+private fun isPrimarySend(label: String): Boolean {
+    if (label.isBlank()) return false
+    val blocked = listOf("send group", "send to", "intruder", "comparer", "scanner", "organizer", "decoder")
+    if (blocked.any { label.contains(it) }) return false
+    return Regex("(^| )send( |$)").containsMatchIn(label)
+}
+
+private fun requestEditor(root: Component): JTextComponent? {
+    return walk(root).filterIsInstance<JTextComponent>()
+        .filter { looksLikeHttpRequest(it.text.orEmpty()) }
+        .sortedByDescending { if (it.isShowing) 1 else 0 }
+        .firstOrNull()
+}
+
+private fun hasSendShortcut(editor: JTextComponent): Boolean = sendAction(editor) != null
+
+private fun fireSendShortcut(editor: JTextComponent): Boolean {
+    val found = sendAction(editor) ?: return false
+    found.second.actionPerformed(ActionEvent(editor, ActionEvent.ACTION_PERFORMED, found.first.toString()))
+    return true
+}
+
+private fun sendAction(editor: JTextComponent): Pair<Any, javax.swing.Action>? {
+    val masks = listOf(
+        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx,
+        InputEvent.CTRL_DOWN_MASK,
+        InputEvent.META_DOWN_MASK
+    ).distinct()
+    val conditions = intArrayOf(
+        JComponent.WHEN_IN_FOCUSED_WINDOW,
+        JComponent.WHEN_FOCUSED,
+        JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT
+    )
+    for (mask in masks) {
+        val stroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, mask)
+        for (condition in conditions) {
+            val key = runCatching { editor.getInputMap(condition).get(stroke) }.getOrNull() ?: continue
+            val action = editor.actionMap.get(key) ?: continue
+            return key to action
+        }
+    }
+    return null
+}
+
+private const val NOTES_EDITOR_NAME = "notesCollapsibleViewTextArea"
+
+private fun findNotesField(tab: Component): JTextComponent? {
+    // The named editor stays in the tree while Inspector is the visible side panel.
+    namedNotesEditor(tab)?.let { return it }
+
+    val titled = walk(tab).firstOrNull { component ->
+        val border = (component as? JComponent)?.border
+        border is TitledBorder && border.title?.contains("Notes", ignoreCase = true) == true
+    }
+    if (titled != null) {
+        walk(titled).filterIsInstance<JTextComponent>().firstOrNull { !isHttpMessage(it) }?.let { return it }
+    }
+
+    hiddenNotesEditor(tab)?.let { return it }
+
+    walk(tab).filterIsInstance<JTextComponent>().firstOrNull { field ->
+        !isHttpMessage(field) && hasWord(componentLabel(field), "note")
+    }?.let { return it }
+
+    val notesRoot = revealNotesContainer(tab) ?: return namedNotesEditor(tab)
+    return editorsIn(notesRoot) ?: namedNotesEditor(tab)
+}
+
+private fun hiddenNotesEditor(tab: Component): JTextComponent? {
+    val pane = walk(tab).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
+        indices(candidate).any { index -> isNotesTab(candidate, index) }
+    } ?: return null
+    val index = indices(pane).first { index -> isNotesTab(pane, index) }
+    return editorsIn(pane.getComponentAt(index))
+}
+
+private fun isNotesTab(pane: JTabbedPane, index: Int): Boolean {
+    return tabTitle(pane, index).equals("Notes", ignoreCase = true) || tabMatches(pane, index, "Notes")
+}
+
+private fun editorsIn(root: Component): JTextComponent? {
+    val editors = walk(root).filterIsInstance<JTextComponent>().filter { !isHttpMessage(it) }.toList()
+    return editors.filterIsInstance<JTextPane>().firstOrNull() ?: editors.firstOrNull()
+}
+
+private fun namedNotesEditor(root: Component): JTextComponent? {
+    val matches = walk(root).filterIsInstance<JTextComponent>().filter { field ->
+        field.name?.equals(NOTES_EDITOR_NAME, ignoreCase = true) == true
+    }.toList()
+    return matches.firstOrNull { it.isShowing } ?: matches.firstOrNull()
+}
+
+private fun revealNotesContainer(tab: Component): Component? {
+    val pane = walk(tab).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
+        indices(candidate).any { index -> isNotesTab(candidate, index) }
+    }
+    if (pane != null) {
+        val index = indices(pane).first { index -> isNotesTab(pane, index) }
+        pane.selectedIndex = index
+        return pane.getComponentAt(index)
+    }
+    val button = walk(tab).filterIsInstance<AbstractButton>().firstOrNull { button ->
+        isNotesControl(button)
+    }
+    if (button != null) {
+        button.doClick(0)
+        return tab
+    }
+    val header = walk(tab).firstOrNull { isNotesControl(it) } ?: return null
+    val parent = header.parent
+    val target = if (parent != null && parent.mouseListeners.isNotEmpty() && parent !is Frame) parent else header
+    dispatchClick(target)
+    return tab
+}
+
+private fun isNotesControl(component: Component): Boolean {
+    if (component is JTextComponent) return false
+    val label = componentLabel(component)
+    if (label.contains("send")) return false
+    if (label == "notes" || label == "note") return true
+    if (component is AbstractButton && component.text.trim().equals("Notes", ignoreCase = true)) return true
+    if (component is JLabel && component.text?.trim().equals("Notes", ignoreCase = true)) return true
+    val name = (component as? JComponent)?.name?.trim().orEmpty()
+    return name.equals("Notes", ignoreCase = true)
+}
+
+private fun writeNotes(field: JTextComponent, notes: String): Boolean {
+    if (!field.isEditable) field.isEditable = true
+    field.text = notes
+    if (notesMatch(notesText(field), notes)) return true
+    val inserted = runCatching {
+        field.document.remove(0, field.document.length)
+        field.document.insertString(0, notes, null)
+        true
+    }.getOrDefault(false)
+    return inserted && notesMatch(notesText(field), notes)
+}
+
+private fun notesText(field: JTextComponent): String {
+    return runCatching { field.document.getText(0, field.document.length) }.getOrNull()
+        ?: field.text.orEmpty()
+}
+
+private fun notesMatch(actual: String, notes: String): Boolean {
+    if (actual == notes) return true
+    return actual.trimEnd('\n', '\r') == notes.trimEnd('\n', '\r')
+}
+
+private fun commitEditor(field: JTextComponent) {
+    runCatching { field.caretPosition = field.document.length }
+    val event = FocusEvent(field, FocusEvent.FOCUS_LOST, false)
+    field.focusListeners.forEach { listener ->
+        runCatching { listener.focusLost(event) }
+    }
+}
+
+private fun editorTexts(root: Component): Set<String> {
+    return walk(root).mapNotNull { componentText(it) }.filter { it.isNotBlank() }.toSet()
+}
+
+/**
+ * Burp 2026.9's request and response editors are panels named
+ * httpRequestMessageAnalyser and httpResponseMessageAnalyser. Their raw
+ * message is a public no-arg byte[] getter, not a [JTextComponent].
+ */
+private fun componentText(component: Component): String? {
+    if (component is JTextComponent) return component.text
+    val name = (component as? JComponent)?.name.orEmpty()
+    if (!name.contains("MessageAnalyser", ignoreCase = true)) return null
+    val getters = component.javaClass.methods.filter { method ->
+        method.parameterCount == 0 && method.returnType == ByteArray::class.java
+    }
+    for (getter in getters) {
+        val bytes = runCatching { getter.invoke(component) as? ByteArray }.getOrNull() ?: continue
+        if (bytes.isEmpty()) continue
+        val text = String(bytes, Charsets.ISO_8859_1)
+        if (looksLikeHttpRequest(text) || looksLikeHttpResponse(text)) return text
+    }
+    return null
+}
+
+private fun diagnose(frame: Frame, tabName: String): String {
+    val snapshot = runCatching {
+        onEdt {
+            val titles = walk(frame).filterIsInstance<JTabbedPane>().flatMap { pane ->
+                indices(pane).map { tabTitle(pane, it) }
+            }.filter { it.isNotBlank() }.distinct().take(24)
+            val buttons = walk(frame).filterIsInstance<AbstractButton>()
+                .map { componentLabel(it) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(16)
+            val sendNames = walk(frame).filterIsInstance<JComponent>()
+                .mapNotNull { it.name }
+                .filter { it.contains("send", ignoreCase = true) }
+                .distinct()
+                .take(8)
+            "tabs=[${titles.joinToString()}] buttons=[${buttons.joinToString()}] send=[${sendNames.joinToString()}]"
+        }
+    }.getOrDefault("the Repeater window could not be read")
+    return "Repeater Send was not available for tab '$tabName'. $snapshot"
+}
+
+private fun componentLabel(component: Component): String {
+    val parts = mutableListOf<String?>()
+    if (component is AbstractButton) {
+        parts += component.text
+        parts += component.actionCommand
+    }
+    if (component is JLabel) parts += component.text
+    if (component is JComponent) {
+        parts += runCatching { component.toolTipText }.getOrNull()
+        parts += component.getClientProperty(JComponent.TOOL_TIP_TEXT_KEY) as? String
+        parts += component.name
+    }
+    parts += runCatching { component.accessibleContext?.accessibleName }.getOrNull()
+    return parts.filterNotNull()
+        .joinToString(" ")
+        .lowercase()
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
+private fun hasWord(label: String, word: String): Boolean {
+    val tokens = label.split(' ')
+    if (word == "note") return tokens.any { it == "note" || it == "notes" }
+    return tokens.any { it == word }
+}
+
+private fun isHttpMessage(field: JTextComponent): Boolean {
+    val text = field.text.orEmpty()
+    return looksLikeHttpRequest(text) || looksLikeHttpResponse(text)
+}
+
+private fun looksLikeHttpResponse(text: String): Boolean = text.trimStart().startsWith("HTTP/")
+
+private fun requestMatches(root: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return true
+    val requests = walk(root).mapNotNull { component ->
+        val text = componentText(component) ?: return@mapNotNull null
+        if (!looksLikeHttpRequest(text)) return@mapNotNull null
+        component.isShowing to text
+    }.toList()
+    if (requests.isEmpty()) return true
+    val showing = requests.filter { it.first }
+    val relevant = if (showing.isNotEmpty()) showing else requests
+    return relevant.any { it.second.contains(needle) }
+}
+
+private data class ViewMark(
+    val tabs: List<Pair<JTabbedPane, Int>>,
+    val selectedButtons: List<AbstractButton>,
+    val cards: List<Pair<Container, Component>>,
+    val focus: Component?
+)
+
+private fun markView(roots: List<Component>): ViewMark {
+    val tabs = mutableListOf<Pair<JTabbedPane, Int>>()
+    val buttons = mutableListOf<AbstractButton>()
+    val cards = mutableListOf<Pair<Container, Component>>()
+    for (root in roots) {
+        for (component in walk(root)) {
+            if (component is JTabbedPane && component.tabCount > 0) {
+                tabs += component to component.selectedIndex
+            }
+            if (component is AbstractButton && component.isSelected) {
+                buttons += component
+            }
+            if (component is Container && component.layout is CardLayout) {
+                val visible = component.components.firstOrNull { it.isVisible }
+                if (visible != null) cards += component to visible
+            }
+        }
+    }
+    val focus = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    return ViewMark(tabs, buttons, cards, focus)
+}
+
+private fun restoreView(mark: ViewMark, restoreFocus: Boolean) {
+    for ((pane, index) in mark.tabs) {
+        runCatching {
+            if (index in 0 until pane.tabCount && pane.selectedIndex != index) {
+                pane.selectedIndex = index
+            }
+        }
+    }
+    for (button in mark.selectedButtons) {
+        runCatching {
+            if (button.isDisplayable && !button.isSelected) button.doClick(0)
+        }
+    }
+    for ((parent, wanted) in mark.cards) {
+        runCatching { showCard(parent, wanted) }
+    }
+    if (!restoreFocus) return
+    val owner = mark.focus ?: return
+    val current = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    if (owner !== current && owner.isShowing) {
+        runCatching { owner.requestFocusInWindow() }
+    }
+}
+
+/**
+ * Puts back a tool or tab this call selected when that selection is still in
+ * place. A selection the user made after the call is left alone.
+ */
+private fun restoreIfStillAutomated(original: ViewMark, automated: ViewMark) {
+    for ((pane, originalIndex) in original.tabs) {
+        val automatedIndex = automated.tabs.firstOrNull { it.first === pane }?.second ?: continue
+        if (automatedIndex == originalIndex || originalIndex !in 0 until pane.tabCount) continue
+        if (pane.selectedIndex == automatedIndex) pane.selectedIndex = originalIndex
+    }
+    val stuckButton = automated.selectedButtons.any { button ->
+        button.isSelected && original.selectedButtons.none { it === button }
+    }
+    if (stuckButton) {
+        for (button in original.selectedButtons) {
+            runCatching {
+                if (button.isDisplayable && !button.isSelected) button.doClick(0)
+            }
+        }
+    }
+    for ((parent, originalChild) in original.cards) {
+        val automatedChild = automated.cards.firstOrNull { it.first === parent }?.second ?: continue
+        if (automatedChild === originalChild) continue
+        val current = parent.components.firstOrNull { it.isVisible }
+        if (current === automatedChild) showCard(parent, originalChild)
+    }
+}
+
+private fun showCard(parent: Container, wanted: Component) {
+    if (wanted.isVisible) return
+    val layout = parent.layout as? CardLayout ?: return
+    val count = parent.componentCount
+    if (count <= 0) return
+    repeat(count) {
+        if (wanted.isVisible) return
+        layout.next(parent)
+    }
+}
+
+private fun looksLikeHttpRequest(text: String): Boolean {
+    val start = text.trimStart()
+    return start.startsWith("GET ") ||
+        start.startsWith("POST ") ||
+        start.startsWith("PUT ") ||
+        start.startsWith("PATCH ") ||
+        start.startsWith("DELETE ") ||
+        start.startsWith("HEAD ") ||
+        start.startsWith("OPTIONS ") ||
+        start.startsWith("TRACE ") ||
+        start.startsWith("CONNECT ")
+}
+
+private fun indices(pane: JTabbedPane) = 0 until pane.tabCount
+
+private fun walk(root: Component?, descendInto: (Component) -> Boolean = { true }): Sequence<Component> = sequence {
+    if (root == null) return@sequence
+    val seen = Collections.newSetFromMap(IdentityHashMap<Component, Boolean>())
+    val pending = ArrayDeque<Pair<Component, Int>>()
+    pending.add(root to 0)
+    while (pending.isNotEmpty()) {
+        val (node, depth) = pending.removeFirst()
+        if (depth > 80 || !seen.add(node)) continue
+        yield(node)
+        if (node is Container && descendInto(node)) {
+            val children = runCatching { node.components }.getOrNull() ?: continue
+            for (child in children) {
+                if (child != null) pending.add(child to depth + 1)
+            }
+        }
+    }
+}

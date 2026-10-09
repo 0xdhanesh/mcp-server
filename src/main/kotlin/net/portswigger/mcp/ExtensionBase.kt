@@ -12,7 +12,7 @@ import net.portswigger.mcp.providers.ProxyJarManager
 class ExtensionBase : BurpExtension {
 
     override fun initialize(api: MontoyaApi) {
-        api.extension().setName("Burp MCP Server")
+        api.extension().setName(ExtensionVersion.NAME)
 
         val config = McpConfig(api.persistence().extensionData(), api.logging())
         val serverManager = KtorServerManager(api)
@@ -40,7 +40,7 @@ class ExtensionBase : BurpExtension {
             }
         }
 
-        api.userInterface().registerSuiteTab("MCP", configUi.component)
+        api.userInterface().registerSuiteTab(ExtensionVersion.TAB_TITLE, configUi.component)
 
         api.extension().registerUnloadingHandler {
             serverManager.shutdown()

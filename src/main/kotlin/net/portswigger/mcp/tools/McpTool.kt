@@ -24,7 +24,7 @@ inline fun <reified I : Any> Server.mcpTool(
     val inputSchema = I::class.asInputSchema()
 
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, request ->
-        try {
+        toolResult(toolName) {
             CallToolResult(
                 content = execute(
                     Json.decodeFromJsonElement(
@@ -33,11 +33,6 @@ inline fun <reified I : Any> Server.mcpTool(
                     )
                 ),
                 isError = false
-            )
-        } catch (e: Exception) {
-            CallToolResult(
-                content = listOf(TextContent("Error: ${e.message}")),
-                isError = true
             )
         }
     }
@@ -117,7 +112,9 @@ inline fun Server.mcpTool(
     crossinline execute: () -> List<ContentBlock>
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
-        CallToolResult(content = execute(), isError = false)
+        toolResult(name) {
+            CallToolResult(content = execute(), isError = false)
+        }
     }
     addTool(name = name, description = description, inputSchema = ToolSchema(), handler = handler)
 }
@@ -128,7 +125,9 @@ inline fun Server.mcpTool(
     crossinline execute: () -> String
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
-        CallToolResult(content = listOf(TextContent(execute())), isError = false)
+        toolResult(name) {
+            CallToolResult(content = listOf(TextContent(execute())), isError = false)
+        }
     }
     addTool(name = name, description = description, inputSchema = ToolSchema(), handler = handler)
 }
