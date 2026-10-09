@@ -37,3 +37,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### local files
+.pentest
+.claude
+.codex
+
