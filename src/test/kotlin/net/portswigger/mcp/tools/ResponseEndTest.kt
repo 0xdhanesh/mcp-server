@@ -454,4 +454,51 @@ class ResponseEndTest {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }
     }
+
+    @Test
+    fun `notes are written into the named repeater notes editor`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val note = "Summary of response: basket 13 belongs to user 37. PASS-IDOR."
+        val notes = JTextPane()
+        notes.name = "notesCollapsibleViewTextArea"
+        notes.isEditable = false
+        var committed = false
+        notes.addFocusListener(object : java.awt.event.FocusAdapter() {
+            override fun focusLost(event: java.awt.event.FocusEvent) {
+                committed = notes.text.trimEnd('\n', '\r') == note
+            }
+        })
+        val notesCard = JPanel(BorderLayout())
+        notesCard.add(notes, BorderLayout.CENTER)
+        val cards = JPanel(CardLayout())
+        cards.add(JPanel(), "inspector")
+        cards.add(notesCard, "notes")
+        val showNotes = JButton("Notes")
+        showNotes.addActionListener { (cards.layout as CardLayout).show(cards, "notes") }
+        val panel = JPanel(BorderLayout())
+        panel.add(JLabel("check123"), BorderLayout.NORTH)
+        panel.add(JTextArea(requestText), BorderLayout.CENTER)
+        panel.add(showNotes, BorderLayout.WEST)
+        panel.add(cards, BorderLayout.EAST)
+        val top = JTabbedPane()
+        top.addTab("Repeater", panel)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+            frame.validate()
+        }
+        try {
+            assertTrue(RepeaterUi.trySetNotes(frame, "check123", note, expectedRequest = requestText))
+            assertEquals(note, notes.text.trimEnd('\n', '\r'))
+            assertTrue(notes.isEditable)
+            assertTrue(committed)
+            assertTrue(notesCard.isShowing)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
 }

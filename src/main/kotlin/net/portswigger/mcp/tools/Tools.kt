@@ -580,7 +580,12 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         val next = if (append == true && tab.notes.isNotBlank()) tab.notes + "\n" + notes else notes
         tab.notes = next
         RepeaterSession.save(tab)
-        val written = RepeaterUi.trySetNotes(suiteFrameOf(api), tabName, next)
+        val written = RepeaterUi.trySetNotes(
+            suiteFrameOf(api),
+            tabName,
+            next,
+            expectedRequest = tab.request.toString()
+        )
         if (written) {
             "Updated Repeater notes on '$tabName'."
         } else {

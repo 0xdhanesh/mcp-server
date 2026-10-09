@@ -31,7 +31,11 @@ internal fun openRepeaterTab(
     RepeaterSession.save(stored)
 
     val frame = suiteFrame(api)
-    val notesWritten = if (notes != null) RepeaterUi.trySetNotes(frame, name, notes) else false
+    val notesWritten = if (notes != null) {
+        RepeaterUi.trySetNotes(frame, name, notes, expectedRequest = request.toString())
+    } else {
+        false
+    }
 
     return buildString {
         appendLine("Opened Repeater tab '$name'.")
@@ -77,7 +81,9 @@ internal fun issueRepeaterTab(
     RepeaterSession.save(tab)
 
     val frame = suiteFrame(api)
-    if (tab.notes.isNotEmpty()) RepeaterUi.trySetNotes(frame, tab.name, tab.notes)
+    if (tab.notes.isNotEmpty()) {
+        RepeaterUi.trySetNotes(frame, tab.name, tab.notes, expectedRequest = tab.request.toString())
+    }
 
     val explicitHttp = issueFrom?.trim()?.let { it.equals("http", true) || it.equals("api", true) } == true
     var sendMiss: String? = null

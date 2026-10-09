@@ -34,7 +34,8 @@ import javax.swing.text.JTextComponent
  * panel, not a JButton. The visible word "Send" is a child label, and the
  * tooltip is "Issue the request", so a search for a button titled Send misses
  * it. Older builds still use an icon button whose tooltip is Send. The Notes
- * editor is a text pane behind a Notes tab, not a titled border.
+ * editor in Burp 2026.9 is a text pane named notesCollapsibleViewTextArea.
+ * Older builds keep that editor behind a Notes tab.
  */
 internal sealed class RepeaterUiSend {
     data class Response(val text: String, val via: String = "Repeater Send") : RepeaterUiSend()
@@ -112,28 +113,40 @@ internal object RepeaterUi {
         }
     }
 
-    fun trySetNotes(frame: Frame?, tabName: String, notes: String, timeoutMs: Long = 3_000): Boolean {
+    fun trySetNotes(
+        frame: Frame?,
+        tabName: String,
+        notes: String,
+        timeoutMs: Long = 3_000,
+        expectedRequest: String? = null
+    ): Boolean {
         if (frame == null) return false
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val wrote = runCatching {
                 onEdt {
-                    val tab = revealRepeaterTab(frame, tabName) ?: return@onEdt false
+                    val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: frame
                     val field = findNotesField(tab) ?: return@onEdt false
-                    field.text = notes
-                    if (field.text != notes) {
-                        runCatching {
-                            field.document.remove(0, field.document.length)
-                            field.document.insertString(0, notes, null)
-                        }
-                    }
-                    if (field.text != notes) return@onEdt false
+                    if (!writeNotes(field, notes)) return@onEdt false
                     commitEditor(field)
-                    true
+                    notesMatch(notesText(field), notes)
                 }
             }.getOrDefault(false)
-            if (wrote) return true
-            Thread.sleep(150)
+            if (!wrote) {
+                Thread.sleep(150)
+                continue
+            }
+            // The Repeater tab binds its notes model after the tab is selected.
+            // Confirm the text is still there on the next pass before reporting success.
+            Thread.sleep(200)
+            val stuck = runCatching {
+                onEdt {
+                    val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: frame
+                    val field = findNotesField(tab) ?: return@onEdt false
+                    notesMatch(notesText(field), notes)
+                }
+            }.getOrDefault(false)
+            if (stuck) return true
         }
         return false
     }
@@ -410,7 +423,11 @@ private fun sendAction(editor: JTextComponent): Pair<Any, javax.swing.Action>? {
     return null
 }
 
+private const val NOTES_EDITOR_NAME = "notesCollapsibleViewTextArea"
+
 private fun findNotesField(tab: Component): JTextComponent? {
+    namedNotesEditor(tab)?.takeIf { it.isShowing }?.let { return it }
+
     val titled = walk(tab).firstOrNull { component ->
         val border = (component as? JComponent)?.border
         border is TitledBorder && border.title?.contains("Notes", ignoreCase = true) == true
@@ -423,28 +440,82 @@ private fun findNotesField(tab: Component): JTextComponent? {
         !isHttpMessage(field) && hasWord(componentLabel(field), "note")
     }?.let { return it }
 
-    val notesRoot = revealNotesContainer(tab) ?: return null
+    val notesRoot = revealNotesContainer(tab)
+    namedNotesEditor(tab)?.let { return it }
+    if (notesRoot == null) return namedNotesEditor(tab)
     val editors = walk(notesRoot).filterIsInstance<JTextComponent>().filter { !isHttpMessage(it) }.toList()
     return editors.filterIsInstance<JTextPane>().firstOrNull { it.isShowing }
         ?: editors.filterIsInstance<JTextPane>().firstOrNull()
         ?: editors.firstOrNull { it.isShowing }
         ?: editors.firstOrNull()
+        ?: namedNotesEditor(tab)
+}
+
+private fun namedNotesEditor(root: Component): JTextComponent? {
+    val matches = walk(root).filterIsInstance<JTextComponent>().filter { field ->
+        field.name?.equals(NOTES_EDITOR_NAME, ignoreCase = true) == true
+    }.toList()
+    return matches.firstOrNull { it.isShowing } ?: matches.firstOrNull()
 }
 
 private fun revealNotesContainer(tab: Component): Component? {
     val pane = walk(tab).filterIsInstance<JTabbedPane>().firstOrNull { candidate ->
-        indices(candidate).any { tabTitle(candidate, it).equals("Notes", ignoreCase = true) }
+        indices(candidate).any { index ->
+            tabTitle(candidate, index).equals("Notes", ignoreCase = true) || tabMatches(candidate, index, "Notes")
+        }
     }
     if (pane != null) {
-        val index = indices(pane).first { tabTitle(pane, it).equals("Notes", ignoreCase = true) }
+        val index = indices(pane).first { index ->
+            tabTitle(pane, index).equals("Notes", ignoreCase = true) || tabMatches(pane, index, "Notes")
+        }
         pane.selectedIndex = index
         return pane.getComponentAt(index)
     }
     val button = walk(tab).filterIsInstance<AbstractButton>().firstOrNull { button ->
-        hasWord(componentLabel(button), "notes") && !componentLabel(button).contains("send")
-    } ?: return null
-    button.doClick(0)
+        isNotesControl(button)
+    }
+    if (button != null) {
+        button.doClick(0)
+        return tab
+    }
+    val header = walk(tab).firstOrNull { isNotesControl(it) } ?: return null
+    val parent = header.parent
+    val target = if (parent != null && parent.mouseListeners.isNotEmpty() && parent !is Frame) parent else header
+    dispatchClick(target)
     return tab
+}
+
+private fun isNotesControl(component: Component): Boolean {
+    if (component is JTextComponent) return false
+    val label = componentLabel(component)
+    if (label.contains("send")) return false
+    if (label == "notes" || label == "note") return true
+    if (component is AbstractButton && component.text.trim().equals("Notes", ignoreCase = true)) return true
+    if (component is JLabel && component.text?.trim().equals("Notes", ignoreCase = true)) return true
+    val name = (component as? JComponent)?.name?.trim().orEmpty()
+    return name.equals("Notes", ignoreCase = true)
+}
+
+private fun writeNotes(field: JTextComponent, notes: String): Boolean {
+    if (!field.isEditable) field.isEditable = true
+    field.text = notes
+    if (notesMatch(notesText(field), notes)) return true
+    val inserted = runCatching {
+        field.document.remove(0, field.document.length)
+        field.document.insertString(0, notes, null)
+        true
+    }.getOrDefault(false)
+    return inserted && notesMatch(notesText(field), notes)
+}
+
+private fun notesText(field: JTextComponent): String {
+    return runCatching { field.document.getText(0, field.document.length) }.getOrNull()
+        ?: field.text.orEmpty()
+}
+
+private fun notesMatch(actual: String, notes: String): Boolean {
+    if (actual == notes) return true
+    return actual.trimEnd('\n', '\r') == notes.trimEnd('\n', '\r')
 }
 
 private fun commitEditor(field: JTextComponent) {
