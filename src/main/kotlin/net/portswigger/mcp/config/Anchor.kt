@@ -11,7 +11,7 @@ import javax.swing.JLabel
 import javax.swing.KeyStroke
 import javax.swing.UIManager
 
-class Anchor(text: String, private val url: String) : JLabel(text) {
+class Anchor(text: String, internal val url: String) : JLabel(text) {
 
     init {
         font = font.deriveFont(mapOf(TextAttribute.UNDERLINE to TextAttribute.UNDERLINE_ON))

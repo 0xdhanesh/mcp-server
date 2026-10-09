@@ -11,6 +11,8 @@ import net.portswigger.mcp.config.components.*
 import net.portswigger.mcp.providers.Provider
 import java.awt.BorderLayout
 import java.awt.Component.CENTER_ALIGNMENT
+import java.awt.FlowLayout
+import java.awt.font.TextAttribute
 import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
@@ -181,6 +183,8 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     text = "Learn more about the Model Context Protocol",
                     url = "https://modelcontextprotocol.io/introduction"
                 ).apply { alignmentX = CENTER_ALIGNMENT })
+            add(createVerticalStrut(Design.Spacing.MD))
+            add(creditLine())
             add(createVerticalStrut(Design.Spacing.LG))
         }
 
@@ -219,5 +223,24 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
 
         val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
         panel.add(columnsPanel, BorderLayout.CENTER)
+    }
+
+    private fun creditLine(): JComponent {
+        return JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
+            isOpaque = false
+            alignmentX = CENTER_ALIGNMENT
+            add(JLabel("- Vibed by 0xdhanesh || ").apply {
+                font = Design.Typography.bodyLarge
+                foreground = Design.Colors.onSurfaceVariant
+            })
+            add(Anchor(
+                text = "linkedin",
+                url = "https://linkedin.com/in/dhanesh-sivasamy"
+            ).apply {
+                font = Design.Typography.bodyLarge.deriveFont(
+                    mapOf(TextAttribute.UNDERLINE to TextAttribute.UNDERLINE_ON)
+                )
+            })
+        }
     }
 }
