@@ -11,7 +11,6 @@ import net.portswigger.mcp.config.components.*
 import net.portswigger.mcp.providers.Provider
 import java.awt.BorderLayout
 import java.awt.Component.CENTER_ALIGNMENT
-import java.awt.GridBagLayout
 import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
@@ -50,6 +49,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     private lateinit var advancedOptionsPanel: AdvancedOptionsPanel
     private lateinit var autoApproveTargetsPanel: AutoApproveTargetsPanel
     private lateinit var installationPanel: InstallationPanel
+    private val activityLogPanel = ActivityLogPanel()
 
     private var toggleListener: ((Boolean) -> Unit)? = null
     private var suppressToggleEvents: Boolean = false
@@ -93,6 +93,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     }
 
     fun cleanup() {
+        activityLogPanel.dispose()
         listenerHandles.forEach { it.remove() }
         listenerHandles.clear()
 
@@ -155,7 +156,12 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     }
 
     private fun buildUi() {
-        val leftPanel = JPanel(GridBagLayout())
+        val leftPanel = JPanel(BorderLayout()).apply {
+            background = Design.Colors.surface
+            border = BorderFactory.createEmptyBorder(
+                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.MD
+            )
+        }
 
         val headerBox = createVerticalBox().apply {
             add(JLabel(ExtensionVersion.NAME).apply {
@@ -175,9 +181,11 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     text = "Learn more about the Model Context Protocol",
                     url = "https://modelcontextprotocol.io/introduction"
                 ).apply { alignmentX = CENTER_ALIGNMENT })
+            add(createVerticalStrut(Design.Spacing.LG))
         }
 
-        leftPanel.add(headerBox)
+        leftPanel.add(headerBox, BorderLayout.NORTH)
+        leftPanel.add(activityLogPanel, BorderLayout.CENTER)
 
         val rightPanelContent = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
