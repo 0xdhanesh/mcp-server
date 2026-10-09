@@ -79,31 +79,29 @@ internal fun issueRepeaterTab(
     val frame = suiteFrame(api)
     if (tab.notes.isNotEmpty()) RepeaterUi.trySetNotes(frame, tab.name, tab.notes)
 
-    val fromUi = (issueFrom ?: "repeater").let {
-        it.equals("repeater", true) || it.equals("ui", true) || it.equals("repeater_tab", true)
-    }
+    val explicitHttp = issueFrom?.trim()?.let { it.equals("http", true) || it.equals("api", true) } == true
+    var sendMiss: String? = null
+    when (val ui = RepeaterUi.trySend(frame, tab.name, expectedRequest = tab.request.toString())) {
+        is RepeaterUiSend.Response -> {
+            tab.lastResponse = ui.text
+            RepeaterSession.save(tab)
+            return repeaterResult(
+                tab = tab,
+                issuedBy = "Repeater tab ${ui.via}",
+                detail = "The request was sent from Repeater tab '${tab.name}' using ${ui.via}. The response below is what that tab showed."
+            )
+        }
 
-    if (fromUi) {
-        when (val ui = RepeaterUi.trySend(frame, tab.name)) {
-            is RepeaterUiSend.Response -> {
-                tab.lastResponse = ui.text
-                RepeaterSession.save(tab)
-                return repeaterResult(
-                    tab = tab,
-                    issuedBy = "Repeater tab ${ui.via}",
-                    detail = "The request was sent from Repeater tab '${tab.name}' using ${ui.via}. The response below is what that tab showed."
-                )
-            }
+        is RepeaterUiSend.ClickedUnreadable -> {
+            return ui.detail + "\nThe request was not sent a second time through the HTTP API."
+        }
 
-            is RepeaterUiSend.ClickedUnreadable -> {
-                return ui.detail + "\nThe request was not sent a second time through the HTTP API."
-            }
-
-            is RepeaterUiSend.NotAvailable -> {
+        is RepeaterUiSend.NotAvailable -> {
+            if (!explicitHttp) {
                 return ui.detail +
-                    "\nThe request stayed in Repeater tab '${tab.name}'. " +
-                    "Pass issueFrom http to send that same request with Http.sendRequest instead."
+                    "\nThe request stayed in Repeater tab '${tab.name}'. The Repeater response pane was not updated."
             }
+            sendMiss = ui.detail
         }
     }
 
@@ -133,7 +131,8 @@ internal fun issueRepeaterTab(
     tab.lastResponse = raw
     RepeaterSession.save(tab)
 
-    val why = "Issued with Http.sendRequest on connection '$connection' for Repeater tab '${tab.name}'."
+    val why = sendMiss +
+        "\nHttp.sendRequest was used on connection '$connection'. That response is not shown in the Repeater response pane."
     return repeaterResult(tab, "Burp HTTP API", why)
 }
 

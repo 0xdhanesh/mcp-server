@@ -551,9 +551,9 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<SendRepeaterRequest>(
-        "Sends the request that is open in a Repeater tab and returns the response shown in that tab. " +
-            "This clicks Send in that Repeater tab, or runs Repeater's own Ctrl/Cmd+Enter send action, so the request leaves from Repeater. " +
-            "Pass issueFrom http to skip the Repeater tab and use Http.sendRequest on connectionId. " +
+        "Clicks Send in the named Repeater tab and returns the response shown in that tab's response pane. " +
+            "The request leaves from Repeater. Leave issueFrom unset so the response appears in the tab. " +
+            "issueFrom http is only a fallback when Repeater Send cannot be clicked, and that fallback does not fill the response pane. " +
             "responseEndMarker is the literal word or characters that mark the end of the server response. " +
             "Set truncateAtEndMarker to keep only the response through that marker. " +
             "notes is written to the Repeater tab Notes field."

@@ -5,14 +5,19 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
+import java.awt.CardLayout
+import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.AbstractAction
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JFrame
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTabbedPane
@@ -231,6 +236,220 @@ class ResponseEndTest {
             assertEquals("checked in notes", notes.text)
             assertTrue(committed)
             assertEquals(side.indexOfTab("Notes"), side.selectedIndex)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `send is clicked when the repeater caption is not a nested tab title`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val response = JTextArea("")
+        val request = JTextArea(requestText)
+        val send = JButton("Send")
+        send.addActionListener { response.text = "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"success\"}" }
+        val bar = JPanel()
+        bar.add(JLabel("juice-shop IDOR basket 13"))
+        bar.add(send)
+        val panel = JPanel(BorderLayout())
+        panel.add(bar, BorderLayout.NORTH)
+        panel.add(request, BorderLayout.WEST)
+        panel.add(response, BorderLayout.CENTER)
+        val top = JTabbedPane()
+        top.addTab("Repeater", panel)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertEquals("Send button", sent.via)
+            assertTrue(sent.text.contains("\"status\":\"success\""))
+            assertTrue(response.text.contains("\"status\":\"success\""))
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `send is clicked when the open request matches and the caption is not a component`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val response = JTextArea("")
+        val request = JTextArea(requestText)
+        val send = JButton("Send")
+        send.addActionListener { response.text = "HTTP/1.1 200 OK\r\n\r\nfrom-open-request" }
+        val panel = JPanel(BorderLayout())
+        panel.add(send, BorderLayout.NORTH)
+        panel.add(request, BorderLayout.WEST)
+        panel.add(response, BorderLayout.CENTER)
+        val top = JTabbedPane()
+        top.addTab("Repeater", panel)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertTrue(response.text.contains("from-open-request"))
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `burp 2026 send panel is clicked from its name and child label`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val response = JTextArea("")
+        val request = JTextArea(requestText)
+        var optionsClicked = false
+        val options = JPanel()
+        options.name = "repeaterSendOptionsButton"
+        options.addMouseListener(object : MouseAdapter() {
+            override fun mouseReleased(event: MouseEvent) {
+                optionsClicked = true
+            }
+        })
+        val send = JPanel(BorderLayout())
+        send.name = "repeaterSendButton"
+        send.toolTipText = "Issue the request"
+        send.add(JLabel("Send"), BorderLayout.CENTER)
+        send.preferredSize = Dimension(88, 28)
+        send.addMouseListener(object : MouseAdapter() {
+            override fun mouseReleased(event: MouseEvent) {
+                if (send.contains(event.point)) {
+                    response.text = "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"success\"}"
+                }
+            }
+        })
+        val bar = JPanel()
+        bar.add(JLabel("juice-shop IDOR basket 13"))
+        bar.add(send)
+        bar.add(options)
+        val panel = JPanel(BorderLayout())
+        panel.add(bar, BorderLayout.NORTH)
+        panel.add(request, BorderLayout.WEST)
+        panel.add(response, BorderLayout.CENTER)
+        val top = JTabbedPane()
+        top.addTab("Repeater", panel)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+            frame.validate()
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertEquals("Send button", sent.via)
+            assertTrue(sent.text.contains("\"status\":\"success\""))
+            assertFalse(optionsClicked)
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `repeater tool button is selected when it is not a suite tab`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val response = JTextArea("")
+        val request = JTextArea(requestText)
+        val send = JPanel(BorderLayout())
+        send.name = "repeaterSendButton"
+        send.add(JLabel("Send"), BorderLayout.CENTER)
+        send.preferredSize = Dimension(88, 28)
+        send.addMouseListener(object : MouseAdapter() {
+            override fun mouseReleased(event: MouseEvent) {
+                if (send.contains(event.point)) response.text = "HTTP/1.1 200 OK\r\n\r\nfrom-nav"
+            }
+        })
+        val repeater = JPanel(BorderLayout())
+        val caption = JLabel("juice-shop IDOR basket 13")
+        val bar = JPanel()
+        bar.add(caption)
+        bar.add(send)
+        repeater.add(bar, BorderLayout.NORTH)
+        repeater.add(request, BorderLayout.WEST)
+        repeater.add(response, BorderLayout.CENTER)
+        val cards = JPanel(CardLayout())
+        cards.add(JPanel(), "other")
+        cards.add(repeater, "repeater")
+        val nav = JButton("Repeater")
+        nav.addActionListener { (cards.layout as CardLayout).show(cards, "repeater") }
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(nav, BorderLayout.WEST)
+            frame.contentPane.add(cards, BorderLayout.CENTER)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertTrue(response.text.contains("from-nav"))
+        } finally {
+            SwingUtilities.invokeAndWait { frame.dispose() }
+        }
+    }
+
+    @Test
+    fun `response bytes are read from the message analyser after send`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+
+        val requestText = "GET /rest/basket/13 HTTP/1.1\r\nHost: localhost:3000\r\n\r\n"
+        val responseEditor = object : JPanel() {
+            var body: ByteArray = ByteArray(0)
+            fun messageBytes(): ByteArray = body
+        }
+        responseEditor.name = "httpResponseMessageAnalyser"
+        val requestEditor = object : JPanel() {
+            fun messageBytes(): ByteArray = requestText.toByteArray(Charsets.ISO_8859_1)
+        }
+        requestEditor.name = "httpRequestMessageAnalyser"
+        val send = JPanel(BorderLayout())
+        send.name = "repeaterSendButton"
+        send.add(JLabel("Send"), BorderLayout.CENTER)
+        send.preferredSize = Dimension(88, 28)
+        send.addMouseListener(object : MouseAdapter() {
+            override fun mouseReleased(event: MouseEvent) {
+                if (send.contains(event.point)) {
+                    responseEditor.body = "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"success\"}".toByteArray(Charsets.ISO_8859_1)
+                }
+            }
+        })
+        val panel = JPanel(BorderLayout())
+        panel.add(JLabel("juice-shop IDOR basket 13"), BorderLayout.NORTH)
+        panel.add(send, BorderLayout.EAST)
+        panel.add(requestEditor, BorderLayout.WEST)
+        panel.add(responseEditor, BorderLayout.CENTER)
+        val top = JTabbedPane()
+        top.addTab("Repeater", panel)
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(900, 400)
+            frame.isVisible = true
+            frame.validate()
+        }
+        try {
+            val sent = RepeaterUi.trySend(frame, "juice-shop IDOR basket 13", 2_000, requestText)
+            check(sent is RepeaterUiSend.Response) { "expected a response, got $sent" }
+            assertEquals("Send button", sent.via)
+            assertTrue(sent.text.contains("\"status\":\"success\""))
         } finally {
             SwingUtilities.invokeAndWait { frame.dispose() }
         }

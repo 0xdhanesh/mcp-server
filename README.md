@@ -62,7 +62,7 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 ## Configuration
 
 ### Configuring the Extension
-Configuration for the extension is done through the Burp Suite UI in the `MCP v1.0` tab.
+Configuration for the extension is done through the Burp Suite UI in the `MCP v1.1` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
 - **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.

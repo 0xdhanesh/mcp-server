@@ -8,6 +8,7 @@ import java.awt.event.ActionEvent
 import java.awt.event.FocusEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import java.util.ArrayDeque
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -29,8 +30,10 @@ import javax.swing.text.JTextComponent
  * look for those Swing controls after the official call has opened the tab.
  * They never issue a second request.
  *
- * Burp's Send control is a button whose text is empty. The word "Send" is the
- * tooltip, and that tooltip is hidden while the button is disabled. The Notes
+ * Burp 2026.9 names the Repeater Send control "repeaterSendButton". It is a
+ * panel, not a JButton. The visible word "Send" is a child label, and the
+ * tooltip is "Issue the request", so a search for a button titled Send misses
+ * it. Older builds still use an icon button whose tooltip is Send. The Notes
  * editor is a text pane behind a Notes tab, not a titled border.
  */
 internal sealed class RepeaterUiSend {
@@ -40,8 +43,13 @@ internal sealed class RepeaterUiSend {
 }
 
 internal object RepeaterUi {
-    fun trySend(frame: Frame?, tabName: String, timeoutMs: Long = 15_000): RepeaterUiSend {
-        if (frame == null) {
+    fun trySend(
+        frame: Frame?,
+        tabName: String,
+        timeoutMs: Long = 15_000,
+        expectedRequest: String? = null
+    ): RepeaterUiSend {
+        if (frame == null || runCatching { frame.isDisplayable }.getOrDefault(false) == false) {
             return RepeaterUiSend.NotAvailable("Burp's window is not available, so Repeater Send could not be used.")
         }
 
@@ -51,17 +59,19 @@ internal object RepeaterUi {
             val elapsed = timeoutMs - (deadline - System.currentTimeMillis())
             fired = runCatching {
                 onEdt {
-                    val tab = revealRepeaterTab(frame, tabName) ?: return@onEdt null
-                    val button = findSendButtonForTab(tab)
+                    val tab = searchRoots(frame).firstNotNullOfOrNull { root ->
+                        revealRepeaterTab(root, tabName, expectedRequest)
+                    } ?: return@onEdt null
+                    val control = findSendControl(tab, expectedRequest)
                     val editor = requestEditor(tab)
                     val shortcut = editor != null && hasSendShortcut(editor)
-                    val readyButton = button?.takeIf { it.isEnabled }
-                    if (readyButton == null && !(shortcut && (button == null || elapsed > 1_500))) {
+                    val ready = control?.takeIf { it.isEnabled && clickHasSize(it) }
+                    if (ready == null && !(shortcut && (control == null || elapsed > 1_500))) {
                         return@onEdt null
                     }
                     val before = editorTexts(tab)
-                    val via = if (readyButton != null) {
-                        readyButton.doClick(0)
+                    val via = if (ready != null) {
+                        pressSend(ready)
                         "Send button"
                     } else if (editor != null && fireSendShortcut(editor)) {
                         "Send shortcut"
@@ -133,11 +143,11 @@ internal object RepeaterUi {
      * Used when the official HTTP send has to stand in for the Send button,
      * so the bytes match what the tab is showing.
      */
-    fun tryReadRequest(frame: Frame?, tabName: String): String? {
+    fun tryReadRequest(frame: Frame?, tabName: String, expectedRequest: String? = null): String? {
         if (frame == null) return null
         return runCatching {
             onEdt {
-                val tab = revealRepeaterTab(frame, tabName) ?: return@onEdt null
+                val tab = revealRepeaterTab(frame, tabName, expectedRequest) ?: return@onEdt null
                 requestEditor(tab)?.text
             }
         }.getOrNull()
@@ -164,14 +174,44 @@ internal fun <T> onEdt(block: () -> T): T {
     return holder[0] as T
 }
 
-private fun revealRepeaterTab(frame: Component, tabName: String): Component? {
-    selectSuiteTab(frame, "Repeater")
+private fun searchRoots(frame: Frame): List<Component> {
+    val others = Frame.getFrames().filter { it !== frame && it.isDisplayable }
+    return listOf(frame) + others
+}
+
+private fun revealRepeaterTab(frame: Component, tabName: String, expectedRequest: String? = null): Component? {
+    activateTool(frame, "Repeater")
     val suite = suiteContent(frame, "Repeater") ?: frame
     selectSubTab(suite, tabName)?.let { return it }
-    clickTabHeader(suite, tabName)
-    selectSubTab(suite, tabName)?.let { return it }
+    // Current Repeater paints the request caption on its own tab strip, not as a suite JTabbedPane title.
+    if (activateCaption(suite, tabName)) {
+        selectSubTab(suite, tabName)?.let { return it }
+        return suite
+    }
+    if (showingExpectedRequest(suite, expectedRequest)) return suite
     selectSubTab(frame, tabName)?.let { return it }
+    if (activateCaption(frame, tabName)) return suiteContent(frame, "Repeater") ?: frame
     return null
+}
+
+private fun activateTool(frame: Component, title: String) {
+    if (suiteContent(frame, title) != null) {
+        selectSuiteTab(frame, title)
+        return
+    }
+    if (findSendControl(frame, null)?.isShowing == true) return
+    val button = walk(frame).filterIsInstance<AbstractButton>().firstOrNull { component ->
+        component.isShowing && textEquals(component, title)
+    } ?: return
+    button.doClick(0)
+}
+
+private fun textEquals(component: Component, wanted: String): Boolean {
+    val names = mutableListOf<String>()
+    if (component is AbstractButton) names += component.text.orEmpty()
+    if (component is JLabel) names += component.text.orEmpty()
+    if (component is JComponent) names += component.name.orEmpty()
+    return names.any { it.trim().equals(wanted, ignoreCase = true) }
 }
 
 private fun selectSuiteTab(frame: Component, title: String) {
@@ -216,38 +256,114 @@ private fun tabTitle(pane: JTabbedPane, index: Int): String {
     return runCatching { pane.getTitleAt(index) }.getOrNull().orEmpty()
 }
 
-private fun clickTabHeader(root: Component, tabName: String) {
-    val wanted = tabName.lowercase()
+private fun activateCaption(root: Component, tabName: String): Boolean {
     val header = walk(root).firstOrNull { component ->
-        component is JLabel && componentLabel(component) == wanted
-    } ?: return
-    val button = generateSequence(header) { it.parent }.filterIsInstance<AbstractButton>().firstOrNull()
+        captionMatches(componentLabel(component), tabName) && !isPrimarySend(componentLabel(component))
+    } ?: return false
+    val button = when {
+        header is AbstractButton -> header
+        else -> generateSequence(header.parent) { it.parent }.filterIsInstance<AbstractButton>()
+            .firstOrNull { !isPrimarySend(componentLabel(it)) }
+    }
     if (button != null) {
         button.doClick(0)
+    } else {
+        val parent = header.parent
+        val target = if (parent != null && parent.mouseListeners.isNotEmpty() && parent !is Frame) parent else header
+        dispatchClick(target)
+    }
+    return true
+}
+
+private fun captionMatches(label: String, tabName: String): Boolean {
+    val wanted = tabName.trim().lowercase()
+    if (wanted.isEmpty() || label.isBlank()) return false
+    if (label == wanted) return true
+    // Tab strips truncate the caption and keep the full name only on the tooltip.
+    if (wanted.startsWith(label) && label.length >= 8) return true
+    if (label.length > wanted.length + 24) return false
+    return label.contains(wanted)
+}
+
+private fun showingExpectedRequest(root: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return false
+    return walk(root).any { component ->
+        component.isShowing && componentText(component)?.contains(needle) == true
     }
 }
 
-private fun findSendButtonForTab(tab: Component): AbstractButton? {
-    findSendButton(tab)?.let { return it }
-    val pane = generateSequence(tab.parent) { it.parent }.filterIsInstance<JTabbedPane>().firstOrNull() ?: return null
-    val holder = pane.parent ?: return null
-    return walk(holder, descendInto = { it !== pane }).filterIsInstance<AbstractButton>()
-        .filter { isPrimarySend(componentLabel(it)) }
-        .sortedWith(sendButtonOrder)
+private fun findSendControl(root: Component, expectedRequest: String?): Component? {
+    val named = walk(root).filterIsInstance<JComponent>().filter { isNamedSend(it) }
+    val buttons = walk(root).filterIsInstance<AbstractButton>().filter { isPrimarySend(componentLabel(it)) }
+    val labeled = walk(root).filter { it is JLabel && it.text?.trim().equals("Send", ignoreCase = true) }
+        .mapNotNull { clickableAround(it) }
+    return (named + buttons + labeled)
+        .distinct()
+        .sortedWith(compareBy<Component>(
+            { !it.isEnabled },
+            { !it.isShowing },
+            { !isNamedSend(it) },
+            { !nearExpectedRequest(it, expectedRequest) }
+        ))
         .firstOrNull()
 }
 
-private val sendButtonOrder = compareBy<AbstractButton>(
-    { !it.isEnabled },
-    { !it.isShowing },
-    { componentLabel(it).length }
-)
+private fun isNamedSend(component: Component): Boolean {
+    val name = (component as? JComponent)?.name?.trim().orEmpty()
+    if (!name.equals("repeaterSendButton", ignoreCase = true)) return false
+    return !name.contains("option", ignoreCase = true)
+}
 
-private fun findSendButton(root: Component): AbstractButton? {
-    return walk(root).filterIsInstance<AbstractButton>()
-        .filter { isPrimarySend(componentLabel(it)) }
-        .sortedWith(sendButtonOrder)
-        .firstOrNull()
+private fun clickableAround(label: Component): Component? {
+    var current: Component? = label
+    var depth = 0
+    while (current != null && depth < 4) {
+        val name = (current as? JComponent)?.name.orEmpty()
+        if (name.contains("option", ignoreCase = true)) return null
+        if (current !== label && current.mouseListeners.isNotEmpty() && current !is Frame && current !is JTabbedPane) {
+            return current
+        }
+        current = current.parent
+        depth++
+    }
+    return null
+}
+
+private fun nearExpectedRequest(component: Component, expectedRequest: String?): Boolean {
+    val needle = expectedRequest?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (needle.length < 8) return false
+    return generateSequence(component) { it.parent }.take(8).any { ancestor ->
+        walk(ancestor).any { child -> componentText(child)?.contains(needle) == true }
+    }
+}
+
+private fun clickHasSize(component: Component): Boolean {
+    if (component is AbstractButton) return true
+    // A hidden tab keeps its Send panel in the tree. Click only the one on screen.
+    return component.isShowing && component.width > 0 && component.height > 0
+}
+
+private fun pressSend(component: Component) {
+    if (component is AbstractButton) {
+        component.doClick(0)
+        return
+    }
+    dispatchClick(component)
+}
+
+private fun dispatchClick(component: Component) {
+    val width = component.width.takeIf { it > 1 } ?: component.preferredSize.width.coerceAtLeast(2)
+    val height = component.height.takeIf { it > 1 } ?: component.preferredSize.height.coerceAtLeast(2)
+    val x = width / 2
+    val y = height / 2
+    val whenMs = System.currentTimeMillis()
+    component.dispatchEvent(
+        MouseEvent(component, MouseEvent.MOUSE_PRESSED, whenMs, 0, x, y, 1, false, MouseEvent.BUTTON1)
+    )
+    component.dispatchEvent(
+        MouseEvent(component, MouseEvent.MOUSE_RELEASED, whenMs, 0, x, y, 1, false, MouseEvent.BUTTON1)
+    )
 }
 
 private fun isPrimarySend(label: String): Boolean {
@@ -340,10 +456,28 @@ private fun commitEditor(field: JTextComponent) {
 }
 
 private fun editorTexts(root: Component): Set<String> {
-    return walk(root).filterIsInstance<JTextComponent>()
-        .map { it.text.orEmpty() }
-        .filter { it.isNotBlank() }
-        .toSet()
+    return walk(root).mapNotNull { componentText(it) }.filter { it.isNotBlank() }.toSet()
+}
+
+/**
+ * Burp 2026.9's request and response editors are panels named
+ * httpRequestMessageAnalyser and httpResponseMessageAnalyser. Their raw
+ * message is a public no-arg byte[] getter, not a [JTextComponent].
+ */
+private fun componentText(component: Component): String? {
+    if (component is JTextComponent) return component.text
+    val name = (component as? JComponent)?.name.orEmpty()
+    if (!name.contains("MessageAnalyser", ignoreCase = true)) return null
+    val getters = component.javaClass.methods.filter { method ->
+        method.parameterCount == 0 && method.returnType == ByteArray::class.java
+    }
+    for (getter in getters) {
+        val bytes = runCatching { getter.invoke(component) as? ByteArray }.getOrNull() ?: continue
+        if (bytes.isEmpty()) continue
+        val text = String(bytes, Charsets.ISO_8859_1)
+        if (looksLikeHttpRequest(text) || looksLikeHttpResponse(text)) return text
+    }
+    return null
 }
 
 private fun diagnose(frame: Frame, tabName: String): String {
@@ -357,7 +491,12 @@ private fun diagnose(frame: Frame, tabName: String): String {
                 .filter { it.isNotBlank() }
                 .distinct()
                 .take(16)
-            "tabs=[${titles.joinToString()}] buttons=[${buttons.joinToString()}]"
+            val sendNames = walk(frame).filterIsInstance<JComponent>()
+                .mapNotNull { it.name }
+                .filter { it.contains("send", ignoreCase = true) }
+                .distinct()
+                .take(8)
+            "tabs=[${titles.joinToString()}] buttons=[${buttons.joinToString()}] send=[${sendNames.joinToString()}]"
         }
     }.getOrDefault("the Repeater window could not be read")
     return "Repeater Send was not available for tab '$tabName'. $snapshot"

@@ -48,7 +48,7 @@ class ToolActivityTest {
         assertTrue(isFailureMessage("Burp's window is not available, so Repeater Send could not be used."))
         assertTrue(isFailureMessage("Send button ran in Repeater tab 'login', but no response text was visible yet."))
         assertTrue(isFailureMessage("Saved Repeater notes for 'login' in this session. Burp's Notes panel for that tab could not be updated."))
-        assertTrue(isFailureMessage("User has disabled configuration editing. They can enable it in the MCP v1.0 tab in Burp"))
+        assertTrue(isFailureMessage("User has disabled configuration editing. They can enable it in the MCP v1.1 tab in Burp"))
         assertTrue(isFailureMessage("<No active editor>"))
 
         assertFalse(isFailureMessage("HTTP/1.1 500 Internal Server Error\r\n\r\nError: from the server"))
