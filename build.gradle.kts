@@ -105,7 +105,7 @@ tasks {
                     "Implementation-Title" to project.name,
                     "Implementation-Version" to project.version,
                     "Implementation-Vendor" to "PortSwigger",
-                    "Built-By" to System.getProperty("user.name"),
+                    "Built-By" to "burp-mcp",
                     "Built-Date" to Instant.now().toString(),
                     "Built-JDK" to "${System.getProperty("java.version")} (${System.getProperty("java.vendor")} ${
                         System.getProperty("java.vm.version")

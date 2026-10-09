@@ -146,3 +146,35 @@ The tool name is auto-derived from its parameters data class. A description is a
 a string or a `List<ContentBlock>` to provide data back to the LLM.
 
 Extend the Paginated interface to add auto-pagination support.
+
+## New enhancements
+
+These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.2`. The Gradle and BApp version stay separate from that label.
+
+### Suite tab
+
+The left side of the tab is an activity log. Each MCP tool call is recorded as `HH:mm:ss - Pass - toolName` or `HH:mm:ss - Fail - toolName`, newest first. A failure also shows the message that was returned to the model. Repeater Send and Repeater notes update the target tab and then leave the Burp tool and tab you already had open, so manual testing can continue.
+
+### Introduced tools
+
+- `send_repeater_request` clicks Send on a named Repeater tab and returns the response shown in that tab. Leave `issueFrom` unset so the response fills the Repeater pane. `issueFrom` `http` is only a fallback when Send cannot be clicked, and that path does not fill the pane.
+- `set_repeater_notes` writes the Notes editor of a Repeater tab opened by MCP. `append` adds to the existing note.
+- `set_repeater_response_end_marker` stores the word or characters that mark the end of that tab's server response. An empty marker clears it. `truncateAtEndMarker` drops everything after the marker.
+- `get_repeater_tab` returns the request, notes, end marker, connection id, and last response for one MCP Repeater tab.
+- `list_repeater_tabs` lists the Repeater tabs opened by MCP in this Burp session.
+- `send_proxy_history_to_repeater` copies one proxy history item into a Repeater tab. `useFinalRequest` selects the request Burp sent after match-and-replace. Notes are copied unless `notes` is set or `copyNotes` is false. `sendNow` issues that tab in the same call.
+- `get_proxy_http_history_summary` lists history as one line per item: id, time, method, URL, status, notes, and whether it was edited. Use the id with the Repeater and notes tools. An optional regex limits the list.
+- `get_proxy_http_history_item` returns one history item, including the request, response, and notes.
+- `set_proxy_history_notes` writes the proxy history Notes field, the Comment column, for one id or for items matching a regex. `highlightColor` accepts a Burp color name, and `append` keeps the existing note.
+- `get_collaborator_client` returns the Collaborator server address and secret key for the MCP client. The secret is stored in the project file. Pass `secretKey` to restore a different client. Burp Professional only.
+- `list_extension_tools` probes loaded extensions. ATOR answers `X-ATOR-Command: status`. Other extensions can answer `X-Burp-Mcp-Discover: tools`.
+- `call_extension_command` sends a command header through Burp's HTTP API. ATOR commands are `status`, `refresh`, `export`, and `import`. `import` reads ATOR export JSON from `body`.
+
+> Note: Only repeater tab functionalities are fully tested and deployed; other tools are still in beta-stage expect instability will check and provide fixes while facing. As each workflow differs
+
+### Updated tools
+
+- `create_repeater_tab` and `create_repeater_tab_http2` open a tab and wait. The request is not sent until `send_repeater_request`. Optional `notes` are written when the Notes field can be found. The tool and tab you already had open stay selected.
+- `send_http1_request` and `send_http2_request` accept `responseEndMarker` and `truncateAtEndMarker`, the same end-of-response marker used by Repeater.
+- `generate_collaborator_payload` keeps one Collaborator client for later polls. `customData` is stored with the payload. `withoutServerLocation` omits the server hostname. `includeSecretKey` returns the client secret. `linkToCollaboratorTab` uses Burp's default generator so the interaction shows in the Collaborator tab. Those tab payloads are not returned by `get_collaborator_interactions`. Burp Professional only.
+- `get_collaborator_interactions` polls that same MCP client. Filter with `payloadId`, the payload string, or `interactionType` (`DNS`, `HTTP`, or `SMTP`). It does not see payloads created with `linkToCollaboratorTab`.

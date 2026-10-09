@@ -2,20 +2,34 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - '**'
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  hygiene:
+    name: Reject unwanted files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Look for exposed usernames and unwanted files
+        run: |
+          bash scripts/check-unwanted.sh --self-test
+          bash scripts/check-unwanted.sh
+
   build:
     name: Test & Build
+    needs: hygiene
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -48,9 +62,73 @@ jobs:
       - name: Upload extension JAR
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: burp-mcp-extension
-          path: build/libs/burp-mcp-*.jar
+          name: burp-mcp-all
+          path: build/libs/burp-mcp-all.jar
+          if-no-files-found: error
           retention-days: 30
+
+  release:
+    name: Publish extension JAR
+    needs: build
+    if: ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'dependabot/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download extension JAR
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: burp-mcp-all
+          path: release
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jar=$(find release -type f -name 'burp-mcp-all.jar' -print -quit)
+          if [[ -z "$jar" ]]; then
+            echo "Built JAR was not found in the downloaded artifact." >&2
+            find release -type f -print >&2
+            exit 1
+          fi
+          cp "$jar" burp-mcp-all.jar
+          version=$(sed -n 's/.*const val VERSION = "\([^"]*\)".*/\1/p' src/main/kotlin/net/portswigger/mcp/ExtensionVersion.kt)
+          if [[ -z "$version" ]]; then
+            echo "Could not read ExtensionVersion.VERSION." >&2
+            exit 1
+          fi
+          short="${GITHUB_SHA::7}"
+          tag="build-${GITHUB_SHA}"
+          checksum=$(sha256sum burp-mcp-all.jar | awk '{print $1}')
+          notes_file=$(mktemp)
+          {
+            echo "Download \`burp-mcp-all.jar\` and load it in Burp Suite."
+            echo
+            echo "1. Open Extensions, then Add."
+            echo "2. Set the extension type to Java."
+            echo "3. Select \`burp-mcp-all.jar\`."
+            echo
+            echo "Do not install \`libs/mcp-proxy-all.jar\` as a Burp extension."
+            echo
+            echo "- Version label: ${version}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- SHA-256: ${checksum}"
+          } > "$notes_file"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" burp-mcp-all.jar --clobber
+          else
+            gh release create "$tag" burp-mcp-all.jar \
+              --target "$GITHUB_SHA" \
+              --title "Burp MCP Server v${version} (${short})" \
+              --notes-file "$notes_file" \
+              --latest
+          fi
 
   dependency-submission:
     name: Dependency Submission
