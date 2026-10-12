@@ -1,6 +1,6 @@
 # Burp MCP server tools
 
-This catalog lists the 41 tools registered by `src/main/kotlin/net/portswigger/mcp/tools/Tools.kt` in version `1.3.3`. **Tool name to invoke** is the exact name exposed to an LLM through MCP. The four tools in the Burp Professional section are registered only in that edition. History, captured requests, and Organizer reads, HTTP sends, and extension probes may prompt for approval in Burp; configuration writes require the configuration editing option to be enabled. Paginated tools accept `count` and `offset`.
+This catalog lists the 43 tools registered by `src/main/kotlin/net/portswigger/mcp/tools/Tools.kt` in version `1.3.4`. **Tool name to invoke** is the exact name exposed to an LLM through MCP. The four tools in the Burp Professional section are registered only in that edition. History, captured requests, and Organizer reads, HTTP sends, and extension probes may prompt for approval in Burp; configuration writes require the configuration editing option to be enabled. Paginated tools accept `count` and `offset`.
 
 ## HTTP requests, Repeater, and Intruder
 
@@ -19,7 +19,7 @@ This catalog lists the 41 tools registered by `src/main/kotlin/net/portswigger/m
 | Send recorded request to Repeater | `send_recorded_request_to_repeater` | Opens a Proxy history item (`source: proxy`) or a captured HTTP request (`source: captured`) by `requestId`, clicks Send in Repeater, and returns its fresh response. A captured ID comes from `list_captured_http_requests`; it is not Burp Logger's visible `#`. |
 | Send to Intruder | `send_to_intruder` | Opens a raw HTTP request in Burp Intruder, with an optional tab name. |
 
-## Proxy history, WebSocket history, and Organizer
+## Proxy history, Logger, WebSocket history, and Organizer
 
 | Name | Tool name to invoke | Description |
 | --- | --- | --- |
@@ -28,6 +28,8 @@ This catalog lists the 41 tools registered by `src/main/kotlin/net/portswigger/m
 | Summarize proxy HTTP history | `get_proxy_http_history_summary` | Returns short paginated JSON lines with each item's ID, time, method, URL, status, notes, and edited state; supports an optional regex. |
 | Get proxy HTTP history item | `get_proxy_http_history_item` | Returns one proxy HTTP history item by ID, including request, response, and notes. |
 | List captured HTTP requests | `list_captured_http_requests` | Lists recent HTTP requests observed after this extension loaded, with capture ID, source Burp tool, method, and URL. The 500 most recent IDs are retained; these IDs differ from Burp Logger's visible `#`. |
+| List Logger requests | `list_logger_requests` | Lists currently visible Burp Logger rows with their displayed `#`, request details, and Comment. Accepts `limit` and `offset`; Logger view filters can hide rows. |
+| Set Logger comment | `set_logger_comment` | Replaces or appends to one visible Logger row's Comment by its displayed `loggerId` (`#`), after checking the captured-request access permission. |
 | Set proxy history notes | `set_proxy_history_notes` | Writes or appends notes to a history item selected by ID or regex; can also set its highlight color. |
 | Get proxy WebSocket history | `get_proxy_websocket_history` | Returns paginated proxy WebSocket history items. |
 | Search proxy WebSocket history | `get_proxy_websocket_history_regex` | Returns paginated proxy WebSocket history items matching a regular expression. |

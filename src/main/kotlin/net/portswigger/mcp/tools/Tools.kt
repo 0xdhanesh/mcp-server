@@ -574,6 +574,44 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         }
     }
 
+    mcpTool<ListLoggerRequests>(
+        "Lists rows currently visible in Burp Logger, including each visible #, method, host, path, status, and Comment. " +
+            "The Logger # is different from the capture ID used by list_captured_http_requests. " +
+            "Use a listed # with set_logger_comment. Logger view filters can hide rows."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
+        }
+        if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
+        val entries = LoggerUi.list(suiteFrameOf(api))
+            ?: return@mcpTool "Logger table unavailable. Open Logger in Burp and try again."
+        val selected = entries.drop(offset.coerceAtLeast(0)).take(limit.coerceIn(1, 100))
+        if (selected.isEmpty()) return@mcpTool "No Logger rows are visible at this offset. Check Logger's view filter."
+        selected.joinToString("\n") { entry ->
+            Json.encodeToString(
+                LoggerRequestSummary(
+                    entry.id, entry.tool, entry.method, entry.host, entry.path, entry.status, entry.comment
+                )
+            )
+        }
+    }
+
+    mcpTool<SetLoggerComment>(
+        "Edits the Comment column of one Burp Logger row identified by the visible Logger #. " +
+            "Get that # from list_logger_requests, not from list_captured_http_requests or Proxy HTTP history. " +
+            "Set append to add to the existing comment, separated by |; otherwise the comment is replaced. " +
+            "The row must be visible under the current Logger view filter."
+    ) {
+        val allowed = runBlocking {
+            checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
+        }
+        if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
+        when (val result = LoggerUi.setComment(suiteFrameOf(api), loggerId, comment, append == true)) {
+            is LoggerUi.CommentResult.Updated -> "Updated Logger #${result.id} Comment: ${result.comment}"
+            is LoggerUi.CommentResult.Unavailable -> "Logger comment not updated: ${result.reason}"
+        }
+    }
+
     mcpTool<SendRecordedRequestToRepeater>(
         "Opens a recorded HTTP request in a Repeater tab, clicks Repeater Send, and returns the fresh response. " +
             "For source proxy, requestId is the Proxy HTTP history ID. For source captured, requestId is a capture ID " +
@@ -937,6 +975,23 @@ data class SendProxyHistoryToRepeater(
 
 @Serializable
 data class ListCapturedHttpRequests(val limit: Int = 20)
+
+@Serializable
+data class ListLoggerRequests(val limit: Int = 20, val offset: Int = 0)
+
+@Serializable
+data class SetLoggerComment(val loggerId: Int, val comment: String, val append: Boolean? = null)
+
+@Serializable
+internal data class LoggerRequestSummary(
+    val id: Int,
+    val tool: String,
+    val method: String,
+    val host: String,
+    val path: String,
+    val status: String,
+    val comment: String
+)
 
 @Serializable
 data class SendRecordedRequestToRepeater(

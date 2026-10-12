@@ -82,6 +82,8 @@ class McpServerIntegrationTest {
             val toolNames = tools.map { it.name }
             assertTrue(toolNames.contains("output_project_options"), "Server should have output_project_options tool")
             assertTrue(toolNames.contains("output_user_options"), "Server should have output_user_options tool")
+            assertTrue(toolNames.contains("list_logger_requests"), "Server should have list_logger_requests tool")
+            assertTrue(toolNames.contains("set_logger_comment"), "Server should have set_logger_comment tool")
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")

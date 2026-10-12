@@ -49,7 +49,7 @@ Ensure that the following prerequisites are met before building and installing t
    ./gradlew embedProxyJar
    ```
 
-   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.3.jar`.
+   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.4.jar`.
 
 ### Loading the Extension into Burp Suite
 
@@ -66,7 +66,7 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 ## Configuration
 
 ### Configuring the Extension
-Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.3` tab.
+Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.4` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
 - **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.
@@ -155,7 +155,7 @@ Extend the Paginated interface to add auto-pagination support.
 
 ## New enhancements
 
-These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.3`.
+These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.4`.
 
 ### Suite tab
 
@@ -172,9 +172,13 @@ The left side of the tab is an activity log. Each MCP tool call is recorded as `
 - `get_proxy_http_history_summary` lists history as one line per item: id, time, method, URL, status, notes, and whether it was edited. Use the id with the Repeater and notes tools. An optional regex limits the list.
 - `get_proxy_http_history_item` returns one history item, including the request, response, and notes.
 - `set_proxy_history_notes` writes the proxy history Notes field, the Comment column, for one id or for items matching a regex. `highlightColor` accepts a Burp color name, and `append` keeps the existing note.
+- `list_logger_requests` lists rows visible in Burp Logger with their displayed `#` and Comment. `set_logger_comment` replaces or appends to the Comment on one displayed `#`. These tools use the Logger table and the captured-request access approval; a row hidden by Logger's view filter must be shown before it can be edited. Logger `#` values are different from captured-request IDs and Proxy history IDs.
+
 - `get_collaborator_client` returns the Collaborator server address and secret key for the MCP client. The secret is stored in the project file. Pass `secretKey` to restore a different client. Burp Professional only.
 - `list_extension_tools` probes loaded extensions. ATOR answers `X-ATOR-Command: status`. Other extensions can answer `X-Burp-Mcp-Discover: tools`.
 - `call_extension_command` sends a command header through Burp's HTTP API. ATOR commands are `status`, `refresh`, `export`, and `import`. `import` reads ATOR export JSON from `body`.
+
+For example, after `list_logger_requests` returns Logger `#` 4, call `set_logger_comment` with `{"loggerId":4,"comment":"Potential SQL injection","append":true}`. The tool reports success only after the Comment value is read back from Logger.
 
 > Note: Only repeater tab functionalities are fully tested and deployed; other tools are still in beta-stage expect instability will check and provide fixes while facing. As each workflow differs
 
@@ -185,6 +189,8 @@ Version `1.3.1` adds a versioned extension JAR and aligns the Gradle, Burp tab, 
 Version `1.3.2` adds [`tools.md`](tools.md), covering all 39 registered MCP tools and their exact LLM invocation names. The catalog matches source registration, and `./gradlew test embedProxyJar` passed all 124 tests. Manual verification in Burp is pending.
 
 Version `1.3.3` adds `send_recorded_request_to_repeater`. Give it `source: "proxy"` and a `requestId` from `get_proxy_http_history_summary`, or `source: "captured"` and a capture ID from `list_captured_http_requests`. It opens the selected request in Repeater, clicks Send there, and returns the fresh response. The captured list includes HTTP requests observed after the extension loads, keeps the latest 500, and uses Montoya message IDs; these IDs are **not** the visible `#` values in Burp Logger. If Repeater Send is unavailable, the tool reports that the request was not sent. Reading captured requests and sending traffic use the existing Burp approval controls, with a separate captured-request access setting. `./gradlew test embedProxyJar` passed all 127 tests, and the JAR contains the extension class and embedded proxy. In a manual Burp check through Claude CLI, captured request ID 4 was opened in Repeater, sent, and returned HTTP 200. This verifies the captured-request path; the proxy-history path was not checked in that run.
+
+Version `1.3.4` adds `list_logger_requests` and `set_logger_comment` for the Logger Comment column highlighted in the Burp screenshot. The tools use Logger's displayed row `#`, respect the current view filter, and verify an edit by reading the table model. `./gradlew test embedProxyJar` passed all 129 tests and built the versioned JAR. The user reported that the Logger comment workflow worked in Burp.
 
 ### Updated tools
 
