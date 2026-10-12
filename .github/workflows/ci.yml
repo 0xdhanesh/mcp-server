@@ -73,6 +73,9 @@ jobs:
     if: ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'dependabot/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: publish-extension-release
+      cancel-in-progress: false
     permissions:
       contents: write
 
@@ -128,6 +131,24 @@ jobs:
               --notes-file "$notes_file" \
               --latest
           fi
+
+      - name: Keep the three newest build releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tags=$(gh release list --limit 1000 \
+            --json tagName,publishedAt,isDraft \
+            --jq '[.[] | select(.tagName | startswith("build-")) | select(.isDraft | not)] | sort_by(.publishedAt) | reverse | .[].tagName')
+          if [[ -z "$release_tags" ]]; then
+            echo "No published build releases were found." >&2
+            exit 1
+          fi
+          mapfile -t releases <<< "$release_tags"
+          for tag in "${releases[@]:3}"; do
+            gh release delete "$tag" --cleanup-tag --yes
+          done
+          gh release edit "${releases[0]}" --latest
 
   dependency-submission:
     name: Dependency Submission
