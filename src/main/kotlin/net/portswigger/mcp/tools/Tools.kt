@@ -583,8 +583,9 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
         }
         if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
-        val entries = LoggerUi.list(suiteFrameOf(api))
-            ?: return@mcpTool "Logger table unavailable. Open Logger in Burp and try again."
+        val frame = suiteFrameOf(api)
+        val entries = LoggerUi.list(frame)
+            ?: return@mcpTool "Logger table unavailable (${LoggerUi.diagnostic(frame)}). Keep Logger visible and try again."
         val selected = entries.drop(offset.coerceAtLeast(0)).take(limit.coerceIn(1, 100))
         if (selected.isEmpty()) return@mcpTool "No Logger rows are visible at this offset. Check Logger's view filter."
         selected.joinToString("\n") { entry ->

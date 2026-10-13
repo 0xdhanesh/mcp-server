@@ -1,6 +1,6 @@
 # Burp MCP server tools
 
-This catalog lists the 43 tools registered by `src/main/kotlin/net/portswigger/mcp/tools/Tools.kt` in version `1.3.4`. **Tool name to invoke** is the exact name exposed to an LLM through MCP. The four tools in the Burp Professional section are registered only in that edition. History, captured requests, and Organizer reads, HTTP sends, and extension probes may prompt for approval in Burp; configuration writes require the configuration editing option to be enabled. Paginated tools accept `count` and `offset`.
+This catalog lists the 43 tools registered by `src/main/kotlin/net/portswigger/mcp/tools/Tools.kt` in version `1.3.5`. **Tool name to invoke** is the exact name exposed to an LLM through MCP. The four tools in the Burp Professional section are registered only in that edition. History, captured requests, and Organizer reads, HTTP sends, and extension probes may prompt for approval in Burp; configuration writes require the configuration editing option to be enabled. Paginated tools accept `count` and `offset`.
 
 ## HTTP requests, Repeater, and Intruder
 

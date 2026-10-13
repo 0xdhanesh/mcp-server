@@ -29,6 +29,21 @@ internal object LoggerUi {
 
     fun list(frame: Frame?): List<Entry>? = frame?.let { onEdt { findTable(it)?.let(::entries) } }
 
+    internal fun diagnostic(root: Component?): String {
+        if (root == null) return "Montoya did not provide Burp's suite window"
+        return onEdt {
+            val visible = walk(root).filterIsInstance<JTable>().filter { it.isShowing }.toList()
+            if (visible.isEmpty()) return@onEdt "no visible Swing table was found in the suite window"
+            val matching = visible.count { table ->
+                column(table, "#") != null && column(table, "Comment") != null
+            }
+            val headers = visible.first().let { table ->
+                (0 until table.columnCount).take(12).joinToString(", ") { table.getColumnName(it).trim() }
+            }
+            "${visible.size} visible Swing table(s), $matching with # and Comment; first table columns: $headers"
+        }
+    }
+
     fun setComment(frame: Frame?, id: Int, comment: String, append: Boolean): CommentResult {
         if (frame == null) return CommentResult.Unavailable("Burp's Logger window is unavailable.")
         if (id <= 0) return CommentResult.Unavailable("Logger # must be a positive number.")
@@ -116,9 +131,13 @@ internal object LoggerUi {
     private fun findTable(root: Component): JTable? {
         val matches = walk(root).filterIsInstance<JTable>().filter { table ->
             column(table, "#") != null && column(table, "Comment") != null &&
-                listOf("Tool", "Method", "Host", "Path").count { column(table, it) != null } >= 2
+                listOf("Time", "Tool", "Method", "Host", "Path", "Status code")
+                    .any { column(table, it) != null }
         }.toList()
-        return matches.singleOrNull()
+        // Burp keeps tables from other tools and hidden tabs in the component tree.
+        // The Logger table the user is looking at takes precedence over those tables.
+        val showing = matches.filter { it.isShowing }
+        return if (showing.isNotEmpty()) showing.singleOrNull() else matches.singleOrNull()
     }
 
     private fun column(table: JTable, name: String): Int? =

@@ -38,6 +38,41 @@ class LoggerUiTest {
         assertEquals("other", table.model.getValueAt(1, 6))
     }
 
+    @Test
+    fun `finds the visible Logger table when another matching table is hidden`() = onEdt {
+        val hidden = loggerTable()
+        val visible = object : JTable(DefaultTableModel(
+            arrayOf(arrayOf<Any>(9, "12:00", "visible")),
+            arrayOf("#", "Time", "Comment")
+        )) {
+            override fun isShowing() = true
+        }
+        val root = JPanel().apply {
+            add(hidden)
+            add(visible)
+        }
+
+        assertEquals(listOf(9), LoggerUi.entries(root)?.map { it.id })
+        assertEquals("visible", LoggerUi.entries(root)?.single()?.comment)
+    }
+
+    @Test
+    fun `does not guess when two Logger-like tables are visible`() = onEdt {
+        fun visibleTable() = object : JTable(DefaultTableModel(
+            arrayOf(arrayOf<Any>(9, "12:00", "visible")),
+            arrayOf("#", "Time", "Comment")
+        )) {
+            override fun isShowing() = true
+        }
+        val root = JPanel().apply {
+            add(visibleTable())
+            add(visibleTable())
+        }
+
+        assertEquals(null, LoggerUi.entries(root))
+        assertTrue(LoggerUi.diagnostic(root).contains("2 visible Swing table(s), 2 with # and Comment"))
+    }
+
     private fun loggerTable() = JTable(DefaultTableModel(
         arrayOf(
             arrayOf<Any>(4, "Extensions", "GET", "localhost", "/search", "200", "existing"),
