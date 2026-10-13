@@ -575,9 +575,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
     }
 
     mcpTool<ListLoggerRequests>(
-        "Lists rows currently visible in Burp Logger, including each visible #, method, host, path, status, and Comment. " +
+        "Lists rows in Burp Logger's current filtered view, including each #, method, host, path, status, and Comment. " +
             "The Logger # is different from the capture ID used by list_captured_http_requests. " +
-            "Use a listed # with set_logger_comment. Logger view filters can hide rows."
+            "Use a listed # with set_logger_comment. Logger view filters can hide rows. " +
+            "The Logger tab is selected and restored automatically, even when Burp is minimized."
     ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
@@ -602,7 +603,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         "Edits the Comment column of one Burp Logger row identified by the visible Logger #. " +
             "Get that # from list_logger_requests, not from list_captured_http_requests or Proxy HTTP history. " +
             "Set append to add to the existing comment, separated by |; otherwise the comment is replaced. " +
-            "The row must be visible under the current Logger view filter."
+            "The row must be present under the current Logger view filter. " +
+            "The Logger tab is selected and restored automatically, even when Burp is minimized."
     ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")

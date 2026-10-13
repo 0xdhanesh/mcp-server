@@ -40,15 +40,17 @@ internal object LoggerUi {
     internal fun diagnostic(root: Component?): String {
         if (root == null) return "Montoya did not provide Burp's suite window"
         return onEdt {
-            val visible = walk(root).filterIsInstance<JTable>().filter { it.isShowing }.toList()
-            if (visible.isEmpty()) return@onEdt "no visible Swing table was found in the suite window"
-            val matching = visible.count { table ->
+            val showing = walk(root).filterIsInstance<JTable>().filter { it.isShowing }.toList()
+            val active = if (showing.isNotEmpty()) showing else
+                walk(root).filterIsInstance<JTable>().filter { visibleWithin(it, root) }.toList()
+            if (active.isEmpty()) return@onEdt "no active Swing table was found in the suite window"
+            val matching = active.count { table ->
                 column(table, "#") != null && column(table, "Comment") != null
             }
-            val headers = visible.first().let { table ->
+            val headers = active.first().let { table ->
                 (0 until table.columnCount).take(12).joinToString(", ") { table.getColumnName(it).trim() }
             }
-            "${visible.size} visible Swing table(s), $matching with # and Comment; first table columns: $headers"
+            "${active.size} ${if (showing.isNotEmpty()) "visible" else "active"} Swing table(s), $matching with # and Comment; first table columns: $headers"
         }
     }
 
@@ -156,7 +158,9 @@ internal object LoggerUi {
         // Burp keeps tables from other tools and hidden tabs in the component tree.
         // The Logger table the user is looking at takes precedence over those tables.
         val showing = matches.filter { it.isShowing }
-        return if (showing.isNotEmpty()) showing.singleOrNull() else matches.singleOrNull()
+        if (showing.isNotEmpty()) return showing.singleOrNull()
+        val active = matches.filter { visibleWithin(it, root) }
+        return if (active.isNotEmpty()) active.singleOrNull() else matches.singleOrNull()
     }
 
     private fun column(table: JTable, name: String): Int? =

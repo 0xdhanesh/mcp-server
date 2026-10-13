@@ -134,6 +134,48 @@ class LoggerUiTest {
         assertTrue(!logger.isVisible)
     }
 
+    @Test
+    fun `lists and comments through a minimized suite without a showing table`() = onEdt {
+        val mcp = JPanel().apply { add(loggerTable()) }
+        val logger = JPanel()
+        val cards = JPanel(CardLayout()).apply {
+            add(mcp, "MCP")
+            add(logger, "Logger")
+            (layout as CardLayout).show(this, "MCP")
+        }
+        val loggerLabel = object : JLabel("Logger") {
+            override fun isDisplayable() = true
+        }.apply {
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseReleased(event: MouseEvent) {
+                    if (logger.componentCount == 0) logger.add(loggerTable())
+                    (cards.layout as CardLayout).show(cards, "Logger")
+                }
+            })
+        }
+        val root = object : JPanel() {
+            override fun isDisplayable() = true
+        }.apply {
+            add(loggerLabel)
+            add(cards)
+        }
+        assertTrue(!root.isShowing)
+        assertTrue(!loggerLabel.isShowing)
+
+        val listed = RepeaterUi.preservingComponentView(root) { LoggerUi.entriesWithLoggerVisible(root) }
+        assertEquals(listOf(4, 6), listed?.map { it.id })
+        assertTrue(mcp.isVisible)
+        assertTrue(!logger.isVisible)
+
+        val edited = RepeaterUi.preservingComponentView(root) {
+            LoggerUi.setVisibleComment(root, 4, "background check", append = false)
+        }
+        assertInstanceOf(LoggerUi.CommentResult.Updated::class.java, edited)
+        assertEquals("background check", loggerTableValue(logger, 0, 6))
+        assertTrue(mcp.isVisible)
+        assertTrue(!logger.isVisible)
+    }
+
     private fun loggerTableValue(root: JPanel, row: Int, column: Int): Any? =
         (root.getComponent(0) as JTable).model.getValueAt(row, column)
 

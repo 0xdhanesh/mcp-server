@@ -49,7 +49,7 @@ Ensure that the following prerequisites are met before building and installing t
    ./gradlew embedProxyJar
    ```
 
-   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.6.jar`.
+   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.7.jar`.
 
 ### Loading the Extension into Burp Suite
 
@@ -66,7 +66,7 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 ## Configuration
 
 ### Configuring the Extension
-Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.6` tab.
+Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.7` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
 - **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.
@@ -155,7 +155,7 @@ Extend the Paginated interface to add auto-pagination support.
 
 ## New enhancements
 
-These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.6`.
+These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.7`.
 
 ### Suite tab
 
@@ -172,7 +172,7 @@ The left side of the tab is an activity log. Each MCP tool call is recorded as `
 - `get_proxy_http_history_summary` lists history as one line per item: id, time, method, URL, status, notes, and whether it was edited. Use the id with the Repeater and notes tools. An optional regex limits the list.
 - `get_proxy_http_history_item` returns one history item, including the request, response, and notes.
 - `set_proxy_history_notes` writes the proxy history Notes field, the Comment column, for one id or for items matching a regex. `highlightColor` accepts a Burp color name, and `append` keeps the existing note.
-- `list_logger_requests` lists rows visible in Burp Logger with their displayed `#` and Comment. `set_logger_comment` replaces or appends to the Comment on one displayed `#`. These tools use the Logger table and the captured-request access approval; a row hidden by Logger's view filter must be shown before it can be edited. Logger `#` values are different from captured-request IDs and Proxy history IDs.
+- `list_logger_requests` lists rows in Burp Logger's current filtered view with their displayed `#` and Comment. `set_logger_comment` replaces or appends to the Comment on one displayed `#`. Both tools select Logger and restore the previous Burp view automatically, including when Burp is minimized. They require Burp's suite window to remain open; a row hidden by Logger's view filter cannot be edited. They use the captured-request access approval. Logger `#` values differ from captured-request IDs and Proxy history IDs.
 
 - `get_collaborator_client` returns the Collaborator server address and secret key for the MCP client. The secret is stored in the project file. Pass `secretKey` to restore a different client. Burp Professional only.
 - `list_extension_tools` probes loaded extensions. ATOR answers `X-ATOR-Command: status`. Other extensions can answer `X-Burp-Mcp-Discover: tools`.
@@ -195,6 +195,8 @@ Version `1.3.4` adds `list_logger_requests` and `set_logger_comment` for the Log
 Version `1.3.5` improved Logger table selection when Burp retains similar tables in hidden tabs and allowed layouts with fewer optional columns. It also added table diagnostics. The corporate Burp retest still failed when the MCP tab was selected: no visible Swing table was found.
 
 Version `1.3.6` addresses the v1.3.5 report that Logger had rows but `list_logger_requests` found no visible Swing table while the MCP tab was selected. Both Logger tools now select Logger for the read or edit and restore the previous Burp tab and focus afterward. A regression test loads the Logger table only when its tab is selected and checks both listing and commenting. Manual verification in Burp is pending.
+
+Version `1.3.7` extends the automatic Logger selection to a minimized Burp window. It selects the current Logger control without requiring Swing's on-screen `isShowing` flag and identifies the active table by its visible component hierarchy. A regression test covers listing and commenting with Burp modeled as minimized. Manual verification in Burp is pending.
 
 ### Updated tools
 

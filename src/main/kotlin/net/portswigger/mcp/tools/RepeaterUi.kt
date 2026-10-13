@@ -232,19 +232,34 @@ internal object RepeaterUi {
             return
         }
         val button = walk(root).filterIsInstance<AbstractButton>().firstOrNull {
-            it.isShowing && textEquals(it, title)
+            canActivateSuiteControl(it, root) && textEquals(it, title)
         }
         if (button != null) {
             button.doClick(0)
             return
         }
         val label = walk(root).filterIsInstance<JLabel>().firstOrNull {
-            it.isShowing && textEquals(it, title)
+            canActivateSuiteControl(it, root) && textEquals(it, title)
         } ?: return
         val clickable = generateSequence(label as Component) { it.parent }
             .firstOrNull { it.mouseListeners.isNotEmpty() && it !is Frame } ?: label
         dispatchClick(clickable)
     }
+}
+
+/** A minimized suite has no showing children, but its selected controls remain displayable. */
+private fun canActivateSuiteControl(control: Component, root: Component): Boolean =
+    control.isShowing ||
+        (root.isDisplayable && !root.isShowing && control.isDisplayable && visibleWithin(control, root))
+
+internal fun visibleWithin(component: Component, root: Component): Boolean {
+    var current: Component? = component
+    while (current != null) {
+        if (!current.isVisible) return false
+        if (current === root) return true
+        current = current.parent
+    }
+    return false
 }
 
 private data class FiredSend(val tab: Component, val before: Set<String>, val via: String)
