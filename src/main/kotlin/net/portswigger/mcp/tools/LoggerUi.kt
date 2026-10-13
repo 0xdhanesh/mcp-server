@@ -22,12 +22,20 @@ internal object LoggerUi {
         val comment: String
     )
 
+    data class ListResult(val entries: List<Entry>?, val diagnostic: String?)
+
     sealed class CommentResult {
         data class Updated(val id: Int, val comment: String) : CommentResult()
         data class Unavailable(val reason: String) : CommentResult()
     }
 
-    fun list(frame: Frame?): List<Entry>? = frame?.let { onEdt { findTable(it)?.let(::entries) } }
+    fun list(frame: Frame?): ListResult {
+        if (frame == null) return ListResult(null, diagnostic(null))
+        return RepeaterUi.preservingView(frame) {
+            val entries = entriesWithLoggerVisible(frame)
+            ListResult(entries, if (entries == null) diagnostic(frame) else null)
+        }
+    }
 
     internal fun diagnostic(root: Component?): String {
         if (root == null) return "Montoya did not provide Burp's suite window"
@@ -47,14 +55,25 @@ internal object LoggerUi {
     fun setComment(frame: Frame?, id: Int, comment: String, append: Boolean): CommentResult {
         if (frame == null) return CommentResult.Unavailable("Burp's Logger window is unavailable.")
         if (id <= 0) return CommentResult.Unavailable("Logger # must be a positive number.")
-        return onEdt {
-            val table = findTable(frame)
-                ?: return@onEdt CommentResult.Unavailable("Burp's Logger table is unavailable.")
-            setComment(table, id, comment, append)
+        return RepeaterUi.preservingView(frame) {
+            setVisibleComment(frame, id, comment, append)
         }
     }
 
     internal fun entries(root: Component): List<Entry>? = findTable(root)?.let(::entries)
+
+    internal fun entriesWithLoggerVisible(root: Component): List<Entry>? = loggerTable(root)?.let(::entries)
+
+    internal fun setVisibleComment(root: Component, id: Int, comment: String, append: Boolean): CommentResult {
+        val table = loggerTable(root)
+            ?: return CommentResult.Unavailable("Burp's Logger table is unavailable (${diagnostic(root)}).")
+        return setComment(table, id, comment, append)
+    }
+
+    private fun loggerTable(root: Component): JTable? {
+        RepeaterUi.activateSuiteTool(root, "Logger")
+        return findTable(root)
+    }
 
     internal fun setComment(table: JTable, id: Int, comment: String, append: Boolean): CommentResult {
         if (table.isEditing) {

@@ -49,7 +49,7 @@ Ensure that the following prerequisites are met before building and installing t
    ./gradlew embedProxyJar
    ```
 
-   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.5.jar`.
+   This command compiles the source code and packages it into `build/libs/burp-mcp-all-v1.3.6.jar`.
 
 ### Loading the Extension into Burp Suite
 
@@ -66,7 +66,7 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 ## Configuration
 
 ### Configuring the Extension
-Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.5` tab.
+Configuration for the extension is done through the Burp Suite UI in the `MCP v1.3.6` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
 - **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.
@@ -155,7 +155,7 @@ Extend the Paginated interface to add auto-pagination support.
 
 ## New enhancements
 
-These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.5`.
+These commits turn the extension from a request-and-history bridge into a suite tab that can drive Repeater, Collaborator, proxy notes, and other loaded extensions. The suite tab is labeled `MCP v1.3.6`.
 
 ### Suite tab
 
@@ -192,7 +192,9 @@ Version `1.3.3` adds `send_recorded_request_to_repeater`. Give it `source: "prox
 
 Version `1.3.4` adds `list_logger_requests` and `set_logger_comment` for the Logger Comment column highlighted in the Burp screenshot. The tools use Logger's displayed row `#`, respect the current view filter, and verify an edit by reading the table model. `./gradlew test embedProxyJar` passed all 129 tests and built the versioned JAR. The user reported that the Logger comment workflow worked in Burp.
 
-Version `1.3.5` fixes Logger table selection when Burp retains similar tables in hidden tabs, and allows Logger layouts with fewer optional columns. The request list and comment editor still require Logger's `#` and Comment columns. If lookup still fails, the tool reports the visible Swing table count and column headers to help diagnose the corporate Burp layout. Automated tests cover visible-table selection and ambiguous-table refusal; Burp manual verification is pending.
+Version `1.3.5` improved Logger table selection when Burp retains similar tables in hidden tabs and allowed layouts with fewer optional columns. It also added table diagnostics. The corporate Burp retest still failed when the MCP tab was selected: no visible Swing table was found.
+
+Version `1.3.6` addresses the v1.3.5 report that Logger had rows but `list_logger_requests` found no visible Swing table while the MCP tab was selected. Both Logger tools now select Logger for the read or edit and restore the previous Burp tab and focus afterward. A regression test loads the Logger table only when its tab is selected and checks both listing and commenting. Manual verification in Burp is pending.
 
 ### Updated tools
 
