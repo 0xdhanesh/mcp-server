@@ -17,3 +17,5 @@ Burp Suite MCP Server lets AI assistants work with Burp Suite during web applica
 - See a log of MCP activity in Burp Suite.
 
 See [tools.md](tools.md) for the full feature list.
+
+See [COMPARE.md](COMPARE.md) to check the differences from PortSwigger's MCP server.
