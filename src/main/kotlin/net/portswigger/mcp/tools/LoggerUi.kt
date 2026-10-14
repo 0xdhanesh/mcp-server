@@ -22,24 +22,60 @@ internal object LoggerUi {
         val comment: String
     )
 
+    data class ListResult(val entries: List<Entry>?, val diagnostic: String?)
+
     sealed class CommentResult {
         data class Updated(val id: Int, val comment: String) : CommentResult()
         data class Unavailable(val reason: String) : CommentResult()
     }
 
-    fun list(frame: Frame?): List<Entry>? = frame?.let { onEdt { findTable(it)?.let(::entries) } }
+    fun list(frame: Frame?): ListResult {
+        if (frame == null) return ListResult(null, diagnostic(null))
+        return RepeaterUi.preservingView(frame) {
+            val entries = entriesWithLoggerVisible(frame)
+            ListResult(entries, if (entries == null) diagnostic(frame) else null)
+        }
+    }
+
+    internal fun diagnostic(root: Component?): String {
+        if (root == null) return "Montoya did not provide Burp's suite window"
+        return onEdt {
+            val showing = walk(root).filterIsInstance<JTable>().filter { it.isShowing }.toList()
+            val active = if (showing.isNotEmpty()) showing else
+                walk(root).filterIsInstance<JTable>().filter { visibleWithin(it, root) }.toList()
+            if (active.isEmpty()) return@onEdt "no active Swing table was found in the suite window"
+            val matching = active.count { table ->
+                column(table, "#") != null && column(table, "Comment") != null
+            }
+            val headers = active.first().let { table ->
+                (0 until table.columnCount).take(12).joinToString(", ") { table.getColumnName(it).trim() }
+            }
+            "${active.size} ${if (showing.isNotEmpty()) "visible" else "active"} Swing table(s), $matching with # and Comment; first table columns: $headers"
+        }
+    }
 
     fun setComment(frame: Frame?, id: Int, comment: String, append: Boolean): CommentResult {
         if (frame == null) return CommentResult.Unavailable("Burp's Logger window is unavailable.")
         if (id <= 0) return CommentResult.Unavailable("Logger # must be a positive number.")
-        return onEdt {
-            val table = findTable(frame)
-                ?: return@onEdt CommentResult.Unavailable("Burp's Logger table is unavailable.")
-            setComment(table, id, comment, append)
+        return RepeaterUi.preservingView(frame) {
+            setVisibleComment(frame, id, comment, append)
         }
     }
 
     internal fun entries(root: Component): List<Entry>? = findTable(root)?.let(::entries)
+
+    internal fun entriesWithLoggerVisible(root: Component): List<Entry>? = loggerTable(root)?.let(::entries)
+
+    internal fun setVisibleComment(root: Component, id: Int, comment: String, append: Boolean): CommentResult {
+        val table = loggerTable(root)
+            ?: return CommentResult.Unavailable("Burp's Logger table is unavailable (${diagnostic(root)}).")
+        return setComment(table, id, comment, append)
+    }
+
+    private fun loggerTable(root: Component): JTable? {
+        RepeaterUi.activateSuiteTool(root, "Logger")
+        return findTable(root)
+    }
 
     internal fun setComment(table: JTable, id: Int, comment: String, append: Boolean): CommentResult {
         if (table.isEditing) {
@@ -116,9 +152,15 @@ internal object LoggerUi {
     private fun findTable(root: Component): JTable? {
         val matches = walk(root).filterIsInstance<JTable>().filter { table ->
             column(table, "#") != null && column(table, "Comment") != null &&
-                listOf("Tool", "Method", "Host", "Path").count { column(table, it) != null } >= 2
+                listOf("Time", "Tool", "Method", "Host", "Path", "Status code")
+                    .any { column(table, it) != null }
         }.toList()
-        return matches.singleOrNull()
+        // Burp keeps tables from other tools and hidden tabs in the component tree.
+        // The Logger table the user is looking at takes precedence over those tables.
+        val showing = matches.filter { it.isShowing }
+        if (showing.isNotEmpty()) return showing.singleOrNull()
+        val active = matches.filter { visibleWithin(it, root) }
+        return if (active.isNotEmpty()) active.singleOrNull() else matches.singleOrNull()
     }
 
     private fun column(table: JTable, name: String): Int? =

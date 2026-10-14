@@ -1,76 +1,76 @@
 # Burp MCP server tools
 
-This catalog lists the 43 tools registered by `src/main/kotlin/net/portswigger/mcp/tools/Tools.kt` in version `1.3.4`. **Tool name to invoke** is the exact name exposed to an LLM through MCP. The four tools in the Burp Professional section are registered only in that edition. History, captured requests, and Organizer reads, HTTP sends, and extension probes may prompt for approval in Burp; configuration writes require the configuration editing option to be enabled. Paginated tools accept `count` and `offset`.
+This catalog lists the 43 tools in the repository. **Tool name to invoke** is the name exposed to an AI agent. The sanity results record live checks with a locally loaded v1.3.8 extension on 14 October 2026, using `http://localhost:3000/` where a target was needed. **Pass** means the observed result matched the check; **Failed** means the attempted check did not produce the expected result. **Not validated** means the required UI state or Burp edition was unavailable, or the tool was not exercised. A failed check does not by itself establish a tool defect.
 
 ## HTTP requests, Repeater, and Intruder
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| Send HTTP/1.1 request | `send_http1_request` | Sends a raw HTTP/1.1 request to a target and returns the response; can mark or truncate the response at a specified end marker. |
-| Send HTTP/2 request | `send_http2_request` | Sends an HTTP/2 request built from pseudo-headers, headers, and a separate body, then returns the response; supports an end marker. |
-| Create HTTP/1.1 Repeater tab | `create_repeater_tab` | Opens a Repeater tab containing a raw HTTP/1.1 request and optional notes; does not send the request. |
-| Create HTTP/2 Repeater tab | `create_repeater_tab_http2` | Opens a Repeater tab containing an HTTP/2 request and optional notes; does not send the request. |
-| Send Repeater request | `send_repeater_request` | Sends from a named MCP-created Repeater tab and returns its response. Can replace the request, set notes or an end marker, or explicitly fall back to Burp's HTTP API if the Repeater Send control is unavailable. |
-| Get Repeater tab | `get_repeater_tab` | Returns a named MCP-created tab's request, notes, response end marker, connection ID, and last response. |
-| List Repeater tabs | `list_repeater_tabs` | Lists Repeater tabs opened by MCP in the current Burp session. |
-| Set Repeater notes | `set_repeater_notes` | Replaces or appends notes for a named MCP-created Repeater tab and attempts to update its Notes editor. |
-| Set Repeater response end marker | `set_repeater_response_end_marker` | Saves or clears the marker used to identify the end of a named tab's response, with optional truncation after that marker. |
-| Send proxy history item to Repeater | `send_proxy_history_to_repeater` | Opens a proxy HTTP history item in Repeater, optionally copying notes, selecting the final request, and sending it immediately. |
-| Send recorded request to Repeater | `send_recorded_request_to_repeater` | Opens a Proxy history item (`source: proxy`) or a captured HTTP request (`source: captured`) by `requestId`, clicks Send in Repeater, and returns its fresh response. A captured ID comes from `list_captured_http_requests`; it is not Burp Logger's visible `#`. |
-| Send to Intruder | `send_to_intruder` | Opens a raw HTTP request in Burp Intruder, with an optional tab name. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| Send HTTP/1.1 request | `send_http1_request` | Send an HTTP/1.1 request and read the response. | Pass (HTTP 200) |
+| Send HTTP/2 request | `send_http2_request` | Send an HTTP/2 request and read the response. | Failed (no response from local target) |
+| Create HTTP/1.1 Repeater tab | `create_repeater_tab` | Open an HTTP/1.1 request in Repeater. | Pass |
+| Create HTTP/2 Repeater tab | `create_repeater_tab_http2` | Open an HTTP/2 request in Repeater. | Pass |
+| Send Repeater request | `send_repeater_request` | Send a request from a Repeater tab and read its response. | Pass (HTTP/1.1; HTTP/2 target returned 400) |
+| Get Repeater tab | `get_repeater_tab` | Read a tab's request, response, and notes. | Pass |
+| List Repeater tabs | `list_repeater_tabs` | List Repeater tabs created through MCP. | Pass |
+| Set Repeater notes | `set_repeater_notes` | Add or replace notes in a Repeater tab. | Pass |
+| Set Repeater response end marker | `set_repeater_response_end_marker` | Set or clear where a Repeater response display ends. | Failed (check was cancelled) |
+| Send proxy history item to Repeater | `send_proxy_history_to_repeater` | Open a Proxy history request in Repeater and optionally send it. | Pass (HTTP 200) |
+| Send recorded request to Repeater | `send_recorded_request_to_repeater` | Open and resend a captured request or Proxy history request in Repeater. | Pass (both sources; HTTP 200) |
+| Send to Intruder | `send_to_intruder` | Open a request in Intruder. | Pass (command accepted) |
 
 ## Proxy history, Logger, WebSocket history, and Organizer
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| Get proxy HTTP history | `get_proxy_http_history` | Returns paginated proxy HTTP history items with their serialized request and response data. |
-| Search proxy HTTP history | `get_proxy_http_history_regex` | Returns paginated proxy HTTP history items whose contents match a regular expression. |
-| Summarize proxy HTTP history | `get_proxy_http_history_summary` | Returns short paginated JSON lines with each item's ID, time, method, URL, status, notes, and edited state; supports an optional regex. |
-| Get proxy HTTP history item | `get_proxy_http_history_item` | Returns one proxy HTTP history item by ID, including request, response, and notes. |
-| List captured HTTP requests | `list_captured_http_requests` | Lists recent HTTP requests observed after this extension loaded, with capture ID, source Burp tool, method, and URL. The 500 most recent IDs are retained; these IDs differ from Burp Logger's visible `#`. |
-| List Logger requests | `list_logger_requests` | Lists currently visible Burp Logger rows with their displayed `#`, request details, and Comment. Accepts `limit` and `offset`; Logger view filters can hide rows. |
-| Set Logger comment | `set_logger_comment` | Replaces or appends to one visible Logger row's Comment by its displayed `loggerId` (`#`), after checking the captured-request access permission. |
-| Set proxy history notes | `set_proxy_history_notes` | Writes or appends notes to a history item selected by ID or regex; can also set its highlight color. |
-| Get proxy WebSocket history | `get_proxy_websocket_history` | Returns paginated proxy WebSocket history items. |
-| Search proxy WebSocket history | `get_proxy_websocket_history_regex` | Returns paginated proxy WebSocket history items matching a regular expression. |
-| Get Organizer items | `get_organizer_items` | Returns paginated items from Burp Organizer. |
-| Search Organizer items | `get_organizer_items_regex` | Returns paginated Organizer items matching a regular expression. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| Get proxy HTTP history | `get_proxy_http_history` | Browse recorded HTTP requests and responses. | Pass |
+| Search proxy HTTP history | `get_proxy_http_history_regex` | Find recorded HTTP traffic by a search pattern. | Pass |
+| Summarize proxy HTTP history | `get_proxy_http_history_summary` | Read short summaries of recorded HTTP traffic. | Pass |
+| Get proxy HTTP history item | `get_proxy_http_history_item` | Read one recorded HTTP request and response. | Pass |
+| List captured HTTP requests | `list_captured_http_requests` | List requests captured during the extension session. | Pass |
+| List Logger requests | `list_logger_requests` | Browse Logger rows and their comments. | Pass |
+| Set Logger comment | `set_logger_comment` | Add or update a Logger row's comment. | Pass |
+| Set proxy history notes | `set_proxy_history_notes` | Add notes or a highlight to a Proxy history item. | Pass |
+| Get proxy WebSocket history | `get_proxy_websocket_history` | Browse recorded WebSocket messages. | Pass |
+| Search proxy WebSocket history | `get_proxy_websocket_history_regex` | Find recorded WebSocket messages by a search pattern. | Pass (no matching item) |
+| Get Organizer items | `get_organizer_items` | Browse items saved in Organizer. | Pass (Organizer was empty) |
+| Search Organizer items | `get_organizer_items_regex` | Find Organizer items by a search pattern. | Pass (Organizer was empty) |
 
 ## Burp configuration and controls
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| Output project options | `output_project_options` | Exports Burp project options as JSON; filters credentials when that setting is enabled. |
-| Output user options | `output_user_options` | Exports Burp user options as JSON; filters credentials when that setting is enabled. |
-| Set project options | `set_project_options` | Imports JSON into Burp project options when configuration editing is enabled. |
-| Set user options | `set_user_options` | Imports JSON into Burp user options when configuration editing is enabled. |
-| Set task execution engine state | `set_task_execution_engine_state` | Pauses or resumes Burp's task execution engine. |
-| Set Proxy Intercept state | `set_proxy_intercept_state` | Enables or disables Burp Proxy Intercept. |
-| Get active editor contents | `get_active_editor_contents` | Reads the text in the currently active message editor, if one is available. |
-| Set active editor contents | `set_active_editor_contents` | Replaces text in the currently active message editor if it is editable. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| Output project options | `output_project_options` | Read Burp project settings. | Pass |
+| Output user options | `output_user_options` | Read Burp user settings. | Pass |
+| Set project options | `set_project_options` | Change Burp project settings. | Not validated (not exercised) |
+| Set user options | `set_user_options` | Change Burp user settings. | Not validated (not exercised) |
+| Set task execution engine state | `set_task_execution_engine_state` | Pause or resume Burp tasks. | Not validated (not exercised) |
+| Set Proxy Intercept state | `set_proxy_intercept_state` | Turn Proxy Intercept on or off. | Not validated (not exercised) |
+| Get active editor contents | `get_active_editor_contents` | Read the active message editor. | Not validated (no active editor) |
+| Set active editor contents | `set_active_editor_contents` | Replace text in the active message editor. | Not validated (no active editor) |
 
 ## Utilities
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| URL encode | `url_encode` | URL-encodes a string using Burp's utility API. |
-| URL decode | `url_decode` | URL-decodes a string using Burp's utility API. |
-| Base64 encode | `base64_encode` | Base64-encodes a string using Burp's utility API. |
-| Base64 decode | `base64_decode` | Base64-decodes a string using Burp's utility API. |
-| Generate random string | `generate_random_string` | Generates a random string of a chosen length and character set. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| URL encode | `url_encode` | URL-encode text. | Pass |
+| URL decode | `url_decode` | URL-decode text. | Pass |
+| Base64 encode | `base64_encode` | Base64-encode text. | Pass |
+| Base64 decode | `base64_decode` | Base64-decode text. | Pass |
+| Generate random string | `generate_random_string` | Create a random string. | Pass |
 
 ## Burp Professional only
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| Get scanner issues | `get_scanner_issues` | Returns paginated issues identified by Burp Scanner. |
-| Generate Collaborator payload | `generate_collaborator_payload` | Generates an out-of-band payload with optional custom data and server-location options. Can link a payload to Burp's Collaborator tab; those tab-linked payloads are polled in Burp rather than with this server's interaction tool. |
-| Get Collaborator interactions | `get_collaborator_interactions` | Polls the MCP Collaborator client for DNS, HTTP, or SMTP interactions, optionally filtering by payload ID, payload string, or interaction type. |
-| Get Collaborator client | `get_collaborator_client` | Returns the MCP Collaborator server address and client secret key, or restores a client from a supplied secret key. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| Get scanner issues | `get_scanner_issues` | Browse issues found by Burp Scanner. | Not validated (Professional unavailable) |
+| Generate Collaborator payload | `generate_collaborator_payload` | Create a Collaborator payload. | Not validated (Professional unavailable) |
+| Get Collaborator interactions | `get_collaborator_interactions` | Check for Collaborator interactions. | Not validated (Professional unavailable) |
+| Get Collaborator client | `get_collaborator_client` | Read Collaborator client details. | Not validated (Professional unavailable) |
 
 ## Other extension integration
 
-| Name | Tool name to invoke | Description |
-| --- | --- | --- |
-| List extension tools | `list_extension_tools` | Probes loaded extensions through known or supplied command headers and reports their advertised tools or commands. |
-| Call extension command | `call_extension_command` | Sends a supplied header, command, and optional body through Burp's HTTP API for a loaded extension to handle. |
+| Name | Tool name to invoke | Description | Sanity |
+| --- | --- | --- | --- |
+| List extension tools | `list_extension_tools` | Discover commands offered by other Burp extensions. | Pass (ShotUp discovered) |
+| Call extension command | `call_extension_command` | Run a command offered by another Burp extension. | Pass (ShotUp command ran) |

@@ -575,16 +575,19 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
     }
 
     mcpTool<ListLoggerRequests>(
-        "Lists rows currently visible in Burp Logger, including each visible #, method, host, path, status, and Comment. " +
+        "Lists rows in Burp Logger's current filtered view, including each #, method, host, path, status, and Comment. " +
             "The Logger # is different from the capture ID used by list_captured_http_requests. " +
-            "Use a listed # with set_logger_comment. Logger view filters can hide rows."
+            "Use a listed # with set_logger_comment. Logger view filters can hide rows. " +
+            "The Logger tab is selected and restored automatically, even when Burp is minimized."
     ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
         }
         if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
-        val entries = LoggerUi.list(suiteFrameOf(api))
-            ?: return@mcpTool "Logger table unavailable. Open Logger in Burp and try again."
+        val frame = suiteFrameOf(api)
+        val result = LoggerUi.list(frame)
+        val entries = result.entries
+            ?: return@mcpTool "Logger table unavailable (${result.diagnostic}). Try again with Burp's main window open."
         val selected = entries.drop(offset.coerceAtLeast(0)).take(limit.coerceIn(1, 100))
         if (selected.isEmpty()) return@mcpTool "No Logger rows are visible at this offset. Check Logger's view filter."
         selected.joinToString("\n") { entry ->
@@ -600,7 +603,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         "Edits the Comment column of one Burp Logger row identified by the visible Logger #. " +
             "Get that # from list_logger_requests, not from list_captured_http_requests or Proxy HTTP history. " +
             "Set append to add to the existing comment, separated by |; otherwise the comment is replaced. " +
-            "The row must be visible under the current Logger view filter."
+            "The row must be present under the current Logger view filter. " +
+            "The Logger tab is selected and restored automatically, even when Burp is minimized."
     ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
