@@ -1,8 +1,6 @@
 # MCP tool comparison
 
-This table compares the MCP tools registered by [PortSwigger's `mcp-server` at `642e6fa`](https://github.com/PortSwigger/mcp-server/blob/642e6fa31c63db3886a353fcd7ed62037e0ceed5/src/main/kotlin/net/portswigger/mcp/tools/Tools.kt) with [this repository at `12f534c` (v1.3.7)](https://github.com/0xdhanesh/mcp-server/blob/12f534c/src/main/kotlin/net/portswigger/mcp/tools/Tools.kt), checked on 14 October 2026. It describes the pushed revision, so uncommitted local changes are excluded. ✅ means the named MCP tool is registered in that revision; ❌ means it is not registered there. Four Professional tools are registered only in Burp Suite Professional. A missing MCP tool does not mean Burp itself lacks the underlying feature.
-
-Implementation references below are relative to `src/main/kotlin/net/portswigger/mcp/tools/`: [`Tools.kt`](src/main/kotlin/net/portswigger/mcp/tools/Tools.kt) registers the tools; [`BurpActions.kt`](src/main/kotlin/net/portswigger/mcp/tools/BurpActions.kt), [`RepeaterUi.kt`](src/main/kotlin/net/portswigger/mcp/tools/RepeaterUi.kt), [`RepeaterSession.kt`](src/main/kotlin/net/portswigger/mcp/tools/RepeaterSession.kt), [`LoggerUi.kt`](src/main/kotlin/net/portswigger/mcp/tools/LoggerUi.kt), [`CapturedHttpRequests.kt`](src/main/kotlin/net/portswigger/mcp/tools/CapturedHttpRequests.kt), [`CollaboratorClients.kt`](src/main/kotlin/net/portswigger/mcp/tools/CollaboratorClients.kt), [`ExtensionProbe.kt`](src/main/kotlin/net/portswigger/mcp/tools/ExtensionProbe.kt), and [`ResponseEnd.kt`](src/main/kotlin/net/portswigger/mcp/tools/ResponseEnd.kt) contain the supporting behavior.
+![PortSwigger MCP server: 27 tools; 0xdhanesh MCP server: 43 tools, 16 more](assets/compare-svg.svg)
 
 | Tool Name | Feature | Portswigger mcp-server (✅/❌) | 0xdhanesh mcp-sever (✅/❌) | How it was achieved (implementation in detail - usable for AI agents and developers to understand how it is implemented) |
 | --- | --- | --- | --- | --- |

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="250" viewBox="0 0 800 250">
+  <title>MCP server tool counts</title>
+  <desc>PortSwigger mcp-server registers 27 tools, including 3 Professional-only tools. 0xdhanesh mcp-server registers 43 tools, including 4 Professional-only tools: 16 more overall.</desc>
+  <defs>
+    <style>
+      .bg { fill: #0d1117; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 12; }
+      .text-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 16px; fill: #8b949e; text-anchor: middle; }
+      .text-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 18px; fill: #e6edf3; font-weight: 600; text-anchor: middle; }
+      .text-num-white { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 72px; fill: #e6edf3; font-weight: 800; text-anchor: middle; }
+
+      /* Green Glowing Text Styles */
+      .text-num-green {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 72px;
+        fill: #3fb950;
+        font-weight: 800;
+        text-anchor: middle;
+        filter: drop-shadow(0px 0px 12px rgba(63, 185, 80, 0.4));
+      }
+      .text-delta {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 28px;
+        fill: #3fb950;
+        font-weight: 700;
+      }
+    </style>
+
+    <!-- Subtle Background Grid -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#21262d" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Background Layer -->
+  <rect class="bg" width="800" height="250" rx="16" />
+  <rect width="800" height="250" fill="url(#grid)" rx="16" />
+
+  <!-- Left Card: PortSwigger -->
+  <g transform="translate(60, 40)">
+    <rect class="card" width="300" height="170" />
+    <text x="150" y="35" class="text-sub">PortSwigger's</text>
+    <text x="150" y="58" class="text-title">mcp-server</text>
+
+    <!-- PortSwigger tool count -->
+    <text x="150" y="130" class="text-num-white">27</text>
+
+    <text x="150" y="155" class="text-sub">tools</text>
+  </g>
+
+  <!-- Center Arrow / Plus indicator -->
+  <g transform="translate(375, 112)">
+    <rect x="0" y="0" width="30" height="30" rx="15" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
+    <path d="M15,9 L15,21 M9,15 L21,15" stroke="#8b949e" stroke-width="2" stroke-linecap="round"/>
+    <path d="M34,10 L44,15 L34,20 Z" fill="#30363d" />
+  </g>
+
+  <!-- Right Card: 0xdhanesh -->
+  <g transform="translate(435, 40)">
+    <rect class="card" width="300" height="170" />
+    <text x="150" y="35" class="text-sub">0xdhanesh's</text>
+    <text x="150" y="58" class="text-title">mcp-server</text>
+
+    <!-- Fork tool count -->
+    <text x="125" y="130" class="text-num-green">43</text>
+
+    <!-- Difference -->
+    <text x="180" y="95" class="text-delta">+16↑</text>
+
+    <text x="150" y="155" class="text-sub">tools</text>
+  </g>
+</svg>
