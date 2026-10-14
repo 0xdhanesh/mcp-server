@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="assets/Banner-for-READMEmd.png" alt="Burp Suite MCP Server banner">
+</p>
+
+<p align="center">
+  <a href="https://github.com/0xdhanesh/mcp-server/stargazers"><img src="https://img.shields.io/github/stars/0xdhanesh/mcp-server?label=stars" alt="GitHub stars"></a>
+  <a href="https://github.com/0xdhanesh/mcp-server/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/0xdhanesh/mcp-server/ci.yml?branch=dev%2Ftool-enhancement2&amp;event=push&amp;label=tests" alt="Test status"></a>
+  <a href="https://github.com/0xdhanesh/mcp-server/releases/latest"><img src="https://img.shields.io/badge/latest%20version-v1.3.8-blue" alt="Latest version: v1.3.8"></a>
+</p>
+
 # Burp Suite MCP Server
 
 Burp Suite MCP Server lets AI assistants work with Burp Suite during web application testing.

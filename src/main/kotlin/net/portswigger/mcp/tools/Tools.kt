@@ -577,7 +577,11 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
     mcpTool<ListLoggerRequests>(
         "Lists rows in Burp Logger's current filtered view, including each #, method, host, path, status, and Comment. " +
             "The Logger # is different from the capture ID used by list_captured_http_requests. " +
-            "Use a listed # with set_logger_comment. Logger view filters can hide rows. " +
+            "When the user gives a Logger #, pass it as loggerId and use that exact row. " +
+            "Filter by sourceTool before pagination when the user specifies where a request came from; " +
+            "for requests made by an extension use sourceTool='Extensions'. " +
+            "A matching path from Proxy is a different request. Use a listed # with set_logger_comment. " +
+            "Logger view filters can hide rows. " +
             "The Logger tab is selected and restored automatically, even when Burp is minimized."
     ) {
         val allowed = runBlocking {
@@ -585,11 +589,12 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         }
         if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
         val frame = suiteFrameOf(api)
-        val result = LoggerUi.list(frame)
+        val result = LoggerUi.list(frame, sourceTool, loggerId)
         val entries = result.entries
             ?: return@mcpTool "Logger table unavailable (${result.diagnostic}). Try again with Burp's main window open."
         val selected = entries.drop(offset.coerceAtLeast(0)).take(limit.coerceIn(1, 100))
-        if (selected.isEmpty()) return@mcpTool "No Logger rows are visible at this offset. Check Logger's view filter."
+        if (selected.isEmpty()) return@mcpTool "No Logger rows match the supplied filters at this offset. " +
+            "Check Logger's view filter, sourceTool, loggerId, and offset."
         selected.joinToString("\n") { entry ->
             Json.encodeToString(
                 LoggerRequestSummary(
@@ -601,7 +606,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
 
     mcpTool<SetLoggerComment>(
         "Edits the Comment column of one Burp Logger row identified by the visible Logger #. " +
-            "Get that # from list_logger_requests, not from list_captured_http_requests or Proxy HTTP history. " +
+            "Use a Logger # supplied by the user exactly; do not replace it with a path match. " +
+            "Otherwise get the # and its sourceTool from list_logger_requests, not from list_captured_http_requests or Proxy HTTP history. " +
+            "sourceTool is required and must match the Logger Tool column; use 'Extensions' for extension requests. " +
+            "Never substitute a Proxy request with the same path for an extension request. " +
             "Set append to add to the existing comment, separated by |; otherwise the comment is replaced. " +
             "The row must be present under the current Logger view filter. " +
             "The Logger tab is selected and restored automatically, even when Burp is minimized."
@@ -610,7 +618,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
             checkDataAccessOrDeny(DataAccessType.CAPTURED_REQUESTS, config, api, "Logger requests")
         }
         if (!allowed) return@mcpTool "Logger access denied by Burp Suite"
-        when (val result = LoggerUi.setComment(suiteFrameOf(api), loggerId, comment, append == true)) {
+        when (val result = LoggerUi.setComment(suiteFrameOf(api), loggerId, comment, append == true, sourceTool)) {
             is LoggerUi.CommentResult.Updated -> "Updated Logger #${result.id} Comment: ${result.comment}"
             is LoggerUi.CommentResult.Unavailable -> "Logger comment not updated: ${result.reason}"
         }
@@ -981,10 +989,15 @@ data class SendProxyHistoryToRepeater(
 data class ListCapturedHttpRequests(val limit: Int = 20)
 
 @Serializable
-data class ListLoggerRequests(val limit: Int = 20, val offset: Int = 0)
+data class ListLoggerRequests(
+    val limit: Int = 20,
+    val offset: Int = 0,
+    val sourceTool: String? = null,
+    val loggerId: Int? = null
+)
 
 @Serializable
-data class SetLoggerComment(val loggerId: Int, val comment: String, val append: Boolean? = null)
+data class SetLoggerComment(val loggerId: Int, val comment: String, val sourceTool: String, val append: Boolean? = null)
 
 @Serializable
 internal data class LoggerRequestSummary(

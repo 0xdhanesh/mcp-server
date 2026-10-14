@@ -44,6 +44,59 @@ class LoggerUiTest {
     }
 
     @Test
+    fun `selects Logger number before editing and restores the prior selection`() = onEdt {
+        lateinit var table: JTable
+        val model = object : DefaultTableModel(
+            arrayOf(
+                arrayOf<Any>(1, "Repeater", "GET", "localhost", "/same", "200", "manual"),
+                arrayOf<Any>(47, "Extensions", "GET", "localhost", "/same", "200", "extension")
+            ),
+            arrayOf("#", "Tool", "Method", "Host", "Path", "Status code", "Comment")
+        ) {
+            override fun setValueAt(value: Any?, row: Int, column: Int) {
+                // Model the Logger editor writing to the selected request.
+                val destination = if (column == 6) table.convertRowIndexToModel(table.selectedRow) else row
+                super.setValueAt(value, destination, column)
+            }
+        }
+        table = JTable(model)
+        table.setRowSelectionInterval(0, 0)
+
+        val result = LoggerUi.setComment(table, 47, "checked", append = false)
+
+        assertInstanceOf(LoggerUi.CommentResult.Updated::class.java, result, result.toString())
+        assertEquals("manual", model.getValueAt(0, 6))
+        assertEquals("checked", model.getValueAt(1, 6))
+        assertEquals(0, table.selectedRow)
+    }
+
+    @Test
+    fun `filters extension rows before pagination and refuses a Proxy row with the same path`() = onEdt {
+        val table = JTable(DefaultTableModel(
+            arrayOf(
+                arrayOf<Any>(1, "Proxy", "GET", "localhost", "/", "200", "manual"),
+                arrayOf<Any>(2, "Proxy", "GET", "localhost", "/app.js", "200", ""),
+                arrayOf<Any>(6, "Proxy", "GET", "localhost", "/other.js", "200", ""),
+                arrayOf<Any>(47, "Extensions", "GET", "localhost", "/", "200", "extension")
+            ),
+            arrayOf("#", "Tool", "Method", "Host", "Path", "Status code", "Comment")
+        ))
+        val root = JPanel().apply { add(table) }
+
+        assertEquals(listOf(47), LoggerUi.entries(root, sourceTool = "Extensions")?.take(3)?.map { it.id })
+        assertEquals(listOf(47), LoggerUi.entries(root, loggerId = 47)?.take(3)?.map { it.id })
+        assertEquals(emptyList<Int>(), LoggerUi.entries(root, sourceTool = "Proxy", loggerId = 47)?.map { it.id })
+        val wrongSource = LoggerUi.setComment(table, 1, "wrong", false, sourceTool = "Extensions")
+        assertTrue((wrongSource as LoggerUi.CommentResult.Unavailable).reason.contains("belongs to 'Proxy'"))
+        assertEquals("manual", table.model.getValueAt(0, 6))
+
+        val updated = LoggerUi.setComment(table, 47, "checked", false, sourceTool = "Extensions")
+        assertInstanceOf(LoggerUi.CommentResult.Updated::class.java, updated)
+        assertEquals("manual", table.model.getValueAt(0, 6))
+        assertEquals("checked", table.model.getValueAt(3, 6))
+    }
+
+    @Test
     fun `finds the visible Logger table when another matching table is hidden`() = onEdt {
         val hidden = loggerTable()
         val visible = object : JTable(DefaultTableModel(
