@@ -1,7 +1,7 @@
 # MCP tool comparison
 
 <p align="center">
-  <img src="assets/compare-svg.svg" alt="PortSwigger MCP server: 27 tools; 0xdhanesh MCP server: 43 tools, 16 more">
+  <img src="assets/compare-svg.svg" alt="PortSwigger MCP server: 27 total tools, 24 Community and 3 Professional only; 0xdhanesh MCP server: 43 total tools, 39 Community and 4 Professional only">
 </p>
 
 | Tool Name | Feature | Portswigger mcp-server (✅/❌) | 0xdhanesh mcp-sever (✅/❌) | How it was achieved (implementation in detail - usable for AI agents and developers to understand how it is implemented) |
