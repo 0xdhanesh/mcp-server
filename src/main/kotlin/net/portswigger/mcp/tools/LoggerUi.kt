@@ -29,10 +29,10 @@ internal object LoggerUi {
         data class Unavailable(val reason: String) : CommentResult()
     }
 
-    fun list(frame: Frame?): ListResult {
+    fun list(frame: Frame?, sourceTool: String? = null, loggerId: Int? = null): ListResult {
         if (frame == null) return ListResult(null, diagnostic(null))
         return RepeaterUi.preservingView(frame) {
-            val entries = entriesWithLoggerVisible(frame)
+            val entries = entriesWithLoggerVisible(frame, sourceTool, loggerId)
             ListResult(entries, if (entries == null) diagnostic(frame) else null)
         }
     }
@@ -54,22 +54,26 @@ internal object LoggerUi {
         }
     }
 
-    fun setComment(frame: Frame?, id: Int, comment: String, append: Boolean): CommentResult {
+    fun setComment(frame: Frame?, id: Int, comment: String, append: Boolean, sourceTool: String? = null): CommentResult {
         if (frame == null) return CommentResult.Unavailable("Burp's Logger window is unavailable.")
         if (id <= 0) return CommentResult.Unavailable("Logger # must be a positive number.")
         return RepeaterUi.preservingView(frame) {
-            setVisibleComment(frame, id, comment, append)
+            setVisibleComment(frame, id, comment, append, sourceTool)
         }
     }
 
-    internal fun entries(root: Component): List<Entry>? = findTable(root)?.let(::entries)
+    internal fun entries(root: Component, sourceTool: String? = null, loggerId: Int? = null): List<Entry>? =
+        findTable(root)?.let { entries(it, sourceTool, loggerId) }
 
-    internal fun entriesWithLoggerVisible(root: Component): List<Entry>? = loggerTable(root)?.let(::entries)
+    internal fun entriesWithLoggerVisible(root: Component, sourceTool: String? = null, loggerId: Int? = null): List<Entry>? =
+        loggerTable(root)?.let { entries(it, sourceTool, loggerId) }
 
-    internal fun setVisibleComment(root: Component, id: Int, comment: String, append: Boolean): CommentResult {
+    internal fun setVisibleComment(
+        root: Component, id: Int, comment: String, append: Boolean, sourceTool: String? = null
+    ): CommentResult {
         val table = loggerTable(root)
             ?: return CommentResult.Unavailable("Burp's Logger table is unavailable (${diagnostic(root)}).")
-        return setComment(table, id, comment, append)
+        return setComment(table, id, comment, append, sourceTool)
     }
 
     private fun loggerTable(root: Component): JTable? {
@@ -77,7 +81,9 @@ internal object LoggerUi {
         return findTable(root)
     }
 
-    internal fun setComment(table: JTable, id: Int, comment: String, append: Boolean): CommentResult {
+    internal fun setComment(
+        table: JTable, id: Int, comment: String, append: Boolean, sourceTool: String? = null
+    ): CommentResult {
         if (table.isEditing) {
             return CommentResult.Unavailable("Finish the current Logger comment edit before using this tool.")
         }
@@ -95,39 +101,71 @@ internal object LoggerUi {
         }
 
         val row = matches.single()
+        if (sourceTool != null) {
+            if (sourceTool.isBlank()) {
+                return CommentResult.Unavailable("sourceTool must name the Logger Tool; no comment was changed.")
+            }
+            val toolColumn = column(table, "Tool")
+                ?: return CommentResult.Unavailable("Logger Tool column is unavailable; no comment was changed.")
+            val actualTool = cellText(table, row, toolColumn)
+            if (!actualTool.equals(sourceTool.trim(), ignoreCase = true)) {
+                return CommentResult.Unavailable(
+                    "Logger #$id belongs to '$actualTool', not '$sourceTool'; no comment was changed."
+                )
+            }
+        }
         val existing = cellText(table, row, commentColumn)
         // Logger's inline editor is a single-line text field in Burp 2026.9.
         val incoming = comment.replace(Regex("[\\r\\n]+"), " ").trim()
         val next = if (append && existing.isNotBlank() && incoming.isNotBlank()) "$existing | $incoming" else incoming
-        val modelRow = table.convertRowIndexToModel(row)
-        val modelColumn = table.convertColumnIndexToModel(commentColumn)
-        val cell = table.getCellRect(row, commentColumn, true)
-        val event = MouseEvent(
-            table, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0,
-            cell.x + cell.width / 2, cell.y + cell.height / 2, 2, false
-        )
-        if (!table.editCellAt(row, commentColumn, event)) {
-            return CommentResult.Unavailable("Logger's Comment cell could not be edited; no comment was changed.")
-        }
-        val editor = table.editorComponent?.let(::textEditor)
-        if (editor == null) {
-            table.cellEditor?.cancelCellEditing()
-            return CommentResult.Unavailable("Logger's Comment editor is unavailable; no comment was changed.")
-        }
-        editor.text = next
-        if (table.cellEditor?.stopCellEditing() != true) {
-            table.cellEditor?.cancelCellEditing()
-            return CommentResult.Unavailable("Logger did not accept the comment edit.")
-        }
-        val saved = table.model.getValueAt(modelRow, modelColumn)?.toString().orEmpty()
-        return if (saved == next) {
-            CommentResult.Updated(id, saved)
-        } else {
-            CommentResult.Unavailable("Logger did not confirm the comment edit; its current value is '$saved'.")
+        val selectedModelRows = table.selectedRows.map(table::convertRowIndexToModel)
+        try {
+            // Burp's Logger editor can act on the selected request rather than the
+            // row passed to editCellAt. Select the exact # before opening it.
+            table.setRowSelectionInterval(row, row)
+            if (table.selectedRow != row || cellText(table, row, idColumn).toIntOrNull() != id) {
+                return CommentResult.Unavailable("Logger #$id could not be selected; no comment was changed.")
+            }
+            val modelRow = table.convertRowIndexToModel(row)
+            val modelColumn = table.convertColumnIndexToModel(commentColumn)
+            val cell = table.getCellRect(row, commentColumn, true)
+            val event = MouseEvent(
+                table, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0,
+                cell.x + cell.width / 2, cell.y + cell.height / 2, 2, false
+            )
+            if (!table.editCellAt(row, commentColumn, event)) {
+                return CommentResult.Unavailable("Logger's Comment cell could not be edited; no comment was changed.")
+            }
+            if (table.editingRow != row || table.editingColumn != commentColumn || table.selectedRow != row) {
+                table.cellEditor?.cancelCellEditing()
+                return CommentResult.Unavailable("Logger #$id lost selection before editing; no comment was changed.")
+            }
+            val editor = table.editorComponent?.let(::textEditor)
+            if (editor == null) {
+                table.cellEditor?.cancelCellEditing()
+                return CommentResult.Unavailable("Logger's Comment editor is unavailable; no comment was changed.")
+            }
+            editor.text = next
+            if (table.cellEditor?.stopCellEditing() != true) {
+                table.cellEditor?.cancelCellEditing()
+                return CommentResult.Unavailable("Logger did not accept the comment edit.")
+            }
+            val saved = table.model.getValueAt(modelRow, modelColumn)?.toString().orEmpty()
+            return if (saved == next) {
+                CommentResult.Updated(id, saved)
+            } else {
+                CommentResult.Unavailable("Logger did not confirm the comment edit; its current value is '$saved'.")
+            }
+        } finally {
+            table.selectionModel.clearSelection()
+            selectedModelRows.forEach { originalRow ->
+                val viewRow = table.convertRowIndexToView(originalRow)
+                if (viewRow >= 0) table.selectionModel.addSelectionInterval(viewRow, viewRow)
+            }
         }
     }
 
-    private fun entries(table: JTable): List<Entry> {
+    private fun entries(table: JTable, sourceTool: String?, loggerId: Int?): List<Entry> {
         val id = column(table, "#")!!
         val tool = column(table, "Tool")
         val method = column(table, "Method")
@@ -137,9 +175,12 @@ internal object LoggerUi {
         val comment = column(table, "Comment")!!
         return (0 until table.rowCount).mapNotNull { row ->
             val number = cellText(table, row, id).toIntOrNull() ?: return@mapNotNull null
+            if (loggerId != null && number != loggerId) return@mapNotNull null
+            val toolName = tool?.let { cellText(table, row, it) }.orEmpty()
+            if (sourceTool != null && !toolName.equals(sourceTool.trim(), ignoreCase = true)) return@mapNotNull null
             Entry(
                 number,
-                tool?.let { cellText(table, row, it) }.orEmpty(),
+                toolName,
                 method?.let { cellText(table, row, it) }.orEmpty(),
                 host?.let { cellText(table, row, it) }.orEmpty(),
                 path?.let { cellText(table, row, it) }.orEmpty(),
