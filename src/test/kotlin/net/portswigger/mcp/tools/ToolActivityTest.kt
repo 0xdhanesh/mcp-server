@@ -2,6 +2,10 @@ package net.portswigger.mcp.tools
 
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import net.portswigger.mcp.security.VariableStore
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -16,6 +20,7 @@ class ToolActivityTest {
     @AfterEach
     fun clearActivity() {
         ToolActivity.clear()
+        ToolResultRedaction.store = null
     }
 
     @Test
@@ -84,5 +89,61 @@ class ToolActivityTest {
         val call = ToolActivity.snapshot().single()
         assertFalse(call.passed)
         assertEquals("Error: history unavailable", call.failureMessage)
+    }
+
+    @Test
+    fun `activity keeps full arguments and result and exports one JSON object per line`() {
+        val arguments = JsonObject(mapOf("url" to JsonPrimitive("https://example.test/a"), "count" to JsonPrimitive(2)))
+        toolResult("example_tool", arguments) {
+            CallToolResult(content = listOf(TextContent("first line\nsecond line")), isError = false)
+        }
+
+        val call = ToolActivity.snapshot().single()
+        assertTrue(call.input.contains("https://example.test/a"))
+        assertTrue(call.output.contains("first line\\nsecond line"))
+        val lines = ToolActivity.exportJsonl().trimEnd().lines()
+        assertEquals(1, lines.size)
+        val exported = Json.parseToJsonElement(lines.single()) as JsonObject
+        assertEquals("example_tool", (exported["tool"] as JsonPrimitive).content)
+        assertTrue((exported["input"] as JsonPrimitive).content.contains("https://example.test/a"))
+        assertTrue((exported["output"] as JsonPrimitive).content.contains("first line"))
+    }
+
+    @Test
+    fun `session secret stays out of activity display and export including earlier entries`() {
+        val store = VariableStore()
+        ToolResultRedaction.store = store
+        store.onValueStored = { ToolActivity.scrubWith(store) }
+        val token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjYW5hcnkifQ.sig12345"
+
+        ToolActivity.record("send_http1_request", CallToolResult(content = listOf(TextContent("echo $token"))),
+            JsonObject(mapOf("content" to JsonPrimitive("Authorization: Bearer $token"))))
+        store.put("canary", token, "user", "example.test")
+        ToolActivity.record("send_with_vars", CallToolResult(content = listOf(TextContent("echo $token"))),
+            JsonObject(mapOf("request" to JsonPrimitive("Authorization: Bearer $token"))))
+        ToolActivity.record("set_session_var", CallToolResult(content = listOf(TextContent("Stored {{canary}}"))),
+            JsonObject(mapOf("name" to JsonPrimitive("canary"), "value" to JsonPrimitive(token))))
+
+        ToolActivity.snapshot().forEach { call ->
+            assertFalse(call.input.contains(token))
+            assertFalse(call.output.contains(token))
+        }
+        val export = ToolActivity.exportJsonl()
+        assertFalse(export.contains(token))
+        assertTrue(export.contains("{{canary}}"))
+        assertTrue(ToolActivity.snapshot().first { it.toolName == "send_with_vars" }.input.contains("Bearer {{canary}}"))
+        assertEquals(3, export.trimEnd().lines().size)
+        store.close()
+    }
+
+    @Test
+    fun `token request body credentials are masked in activity and export`() {
+        val password = "private-login-password"
+        val input = JsonObject(mapOf(
+            "request" to JsonPrimitive("POST /login HTTP/1.1\r\nHost: auth.target\r\n\r\n{\"password\":\"$password\"}")
+        ))
+        ToolActivity.record("acquire_session_var", CallToolResult(content = listOf(TextContent("Stored {{session}}"))), input)
+        assertFalse(ToolActivity.snapshot().single().input.contains(password))
+        assertFalse(ToolActivity.exportJsonl().contains(password))
     }
 }

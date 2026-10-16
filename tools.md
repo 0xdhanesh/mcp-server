@@ -1,13 +1,27 @@
 # Burp MCP server tools
 
-This catalog lists the 43 tools in the repository. **Tool name to invoke** is the name exposed to an AI agent. The sanity results record live checks with a locally loaded v1.3.8 extension on 14 October 2026, using `http://localhost:3000/` where a target was needed. **Pass** means the observed result matched the check; **Failed** means the attempted check did not produce the expected result. **Not validated** means the required UI state or Burp edition was unavailable, or the tool was not exercised. A failed check does not by itself establish a tool defect.
+This catalog lists the available tool groups. **Tool name to invoke** is the name exposed to an AI agent. The sanity results below record live checks with a locally loaded v1.3.8 extension on 14 October 2026, using `http://localhost:3000/` where a target was needed. **Pass** means the observed result matched the check; **Failed** means the attempted check did not produce the expected result. **Not validated** means the required UI state or Burp edition was unavailable, or the tool was not exercised. A failed check does not by itself establish a tool defect.
+
+## Session variables and authorization replay
+
+| Name | Tool name to invoke | Description |
+| --- | --- | --- |
+| Set session variable | `set_session_var` | Store a value for one identity and host; return its handle. |
+| Extract session variable | `extract_session_var` | Capture a value from an existing response by last send, Proxy history ID, or Organizer ID. |
+| Acquire session variable | `acquire_session_var` | Send a selected raw HTTP/curl or Proxy history request, extract a response value with JSONPath or regex, and store it under an identity and target host. |
+| Acquire configured session variable | `acquire_configured_session_var` | Run the token request saved in the MCP tab for one identity and store its extracted value. |
+| Get session auth status | `get_session_auth_status` | Check the saved token request, required handles, and selected role without sending HTTP or returning values. |
+| List session variables | `list_session_vars` | List handles, identities, and hosts without values. |
+| Clear session variables | `clear_session_vars` | Erase all values or those for one identity. |
+| Send with variables | `send_with_vars` | Expand handles at send time and return a redacted response. Omit `identity` when one role has all required handles. Set `usesHttps=false` for raw HTTP on a nonstandard port. Set `allowTokenRequest=true` to refresh that role after a 401 and retry once. |
+| Authorization replay | `authz_replay` | Send one template for multiple roles and evaluate response assertions in the extension. |
 
 ## HTTP requests, Repeater, and Intruder
 
 | Name | Tool name to invoke | Description | Sanity |
 | --- | --- | --- | --- |
-| Send HTTP/1.1 request | `send_http1_request` | Send an HTTP/1.1 request and read the response. | Pass (HTTP 200) |
-| Send HTTP/2 request | `send_http2_request` | Send an HTTP/2 request and read the response. | Failed (no response from local target) |
+| Send HTTP/1.1 request | `send_http1_request` | Send an HTTP/1.1 request. Returns the original 401 by default; set `allowTokenRequest=true` to acquire a token for the default or only ready role and retry once. Use `send_with_vars` for `{{name}}` placeholders. | Pass (HTTP 200) |
+| Send HTTP/2 request | `send_http2_request` | Send an HTTP/2 request. Returns the original 401 by default; set `allowTokenRequest=true` to acquire a token for the default or only ready role and retry once. Use `send_with_vars` for `{{name}}` placeholders. | Failed (no response from local target) |
 | Create HTTP/1.1 Repeater tab | `create_repeater_tab` | Open an HTTP/1.1 request in Repeater. | Pass |
 | Create HTTP/2 Repeater tab | `create_repeater_tab_http2` | Open an HTTP/2 request in Repeater. | Pass |
 | Send Repeater request | `send_repeater_request` | Send a request from a Repeater tab and read its response. | Pass (HTTP/1.1; HTTP/2 target returned 400) |
