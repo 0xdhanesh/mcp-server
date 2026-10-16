@@ -22,6 +22,7 @@ import net.portswigger.mcp.security.DataAccessSecurity
 import net.portswigger.mcp.security.DataAccessType
 import net.portswigger.mcp.security.HttpRequestSecurity
 import net.portswigger.mcp.security.filterConfigCredentials
+import net.portswigger.mcp.security.VariableStore
 import java.awt.KeyboardFocusManager
 import java.util.regex.Pattern
 import javax.swing.JTextArea
@@ -110,9 +111,24 @@ private fun normalizePrelude(prelude: String): String = prelude
     .replace("\r", "")          // Actual CR → remove
     .replace("\n", "\r\n")      // All LF → proper CRLF
 
-fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: CapturedHttpRequests) {
+fun Server.registerTools(
+    api: MontoyaApi, config: McpConfig, capturedRequests: CapturedHttpRequests,
+    variableStore: VariableStore = VariableStore()
+) {
+    ToolResultRedaction.store = variableStore
+    variableStore.onValueStored = { ToolActivity.scrubWith(variableStore) }
+    registerSessionTools(api, config, variableStore)
 
-    mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.") {
+    mcpTool<SendHttp1Request>(
+        "Issues an HTTP/1.1 request and returns the response. By default, never calls the saved token endpoint. " +
+            "Set allowTokenRequest=true only when an internal token request after HTTP 401 is allowed; then " +
+            "the default role or only ready role is used and the request is retried once. Call get_session_auth_status " +
+            "to check readiness without sending. Use send_with_vars for {{name}} placeholders. " +
+            "Stored values in echoed paths may display as handles even though the original path was sent."
+    ) {
+        require(!Regex("\\{\\{[A-Za-z_][A-Za-z0-9_]*}}").containsMatchIn(content)) {
+            "Use send_with_vars with an identity for {{name}} placeholders."
+        }
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(targetHostname, targetPort, config, content, api)
         }
@@ -126,12 +142,22 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         val fixedContent = normalizeHttpContent(content)
 
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
-        val response = api.http().sendRequest(request)
-        val raw = response?.toString() ?: "<no response>"
-        presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
+        val outcome = sendMcpRequestWithAutoAuth(api, config, variableStore, request,
+            allowTokenRequest = allowTokenRequest)
+        val raw = outcome.exchange?.toString() ?: "<no response>"
+        val displayNote = if (variableStore.redact(content) != content) {
+            "MCP display: stored values in echoed paths, headers, or bodies may appear as handles; original bytes were sent.\n"
+        } else ""
+        outcome.note + displayNote + presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
-    mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.") {
+    mcpTool<SendHttp2Request>(
+        "Issues an HTTP/2 request and returns the response. By default, never calls the saved token endpoint. " +
+            "Set allowTokenRequest=true only when an internal token request after HTTP 401 is allowed; then " +
+            "the default role or only ready role is used and the request is retried once. Call get_session_auth_status " +
+            "to check readiness without sending. Use send_with_vars for {{name}} placeholders. " +
+            "Do NOT pass headers to the body parameter."
+    ) {
         val http2RequestDisplay = buildString {
             pseudoHeaders.forEach { (key, value) ->
                 val headerName = if (key.startsWith(":")) key else ":$key"
@@ -144,6 +170,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
                 appendLine()
                 append(requestBody)
             }
+        }
+
+        require(!Regex("\\{\\{[A-Za-z_][A-Za-z0-9_]*}}").containsMatchIn(http2RequestDisplay)) {
+            "Use send_with_vars with an identity for {{name}} placeholders."
         }
 
         val allowed = runBlocking {
@@ -159,9 +189,13 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
 
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
-        val response = api.http().sendRequest(request, HttpMode.HTTP_2)
-        val raw = response?.toString() ?: "<no response>"
-        presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
+        val outcome = sendMcpRequestWithAutoAuth(api, config, variableStore, request, HttpMode.HTTP_2,
+            allowTokenRequest = allowTokenRequest)
+        val raw = outcome.exchange?.toString() ?: "<no response>"
+        val displayNote = if (variableStore.redact(http2RequestDisplay) != http2RequestDisplay) {
+            "MCP display: stored values in echoed paths, headers, or bodies may appear as handles; original bytes were sent.\n"
+        } else ""
+        outcome.note + displayNote + presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
     mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found. The Burp tool and Repeater tab that are already open stay as they are.") {
@@ -177,9 +211,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
     }
 
     mcpUnitTool<SendToIntruder>("Sends an HTTP request to Intruder with the specified HTTP request and optional tab name. Make sure to use carriage returns appropriately.") {
+        requireNoStoredSecret(content)
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
-        api.intruder().sendToIntruder(request, tabName)
+        api.intruder().sendToIntruder(request, tabName?.let(::safeMetadata))
     }
 
     mcpTool<UrlEncode>("URL encodes the input string") {
@@ -231,7 +266,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
 
     mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Make sure to export before doing this, so you know what the schema is. Make sure the JSON has a top level 'user_options' object!") {
         if (config.configEditingTooling) {
-            api.logging().logToOutput("Setting project-level configuration: $json")
+            requireNoStoredSecret(json)
+            api.logging().logToOutput("Setting project-level configuration: ${safeMetadata(json)}")
             api.burpSuite().importProjectOptionsFromJson(json)
 
             "Project configuration has been applied"
@@ -243,7 +279,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
 
     mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Make sure to export before doing this, so you know what the schema is. Make sure the JSON has a top level 'project_options' object!") {
         if (config.configEditingTooling) {
-            api.logging().logToOutput("Setting user-level configuration: $json")
+            requireNoStoredSecret(json)
+            api.logging().logToOutput("Setting user-level configuration: ${safeMetadata(json)}")
             api.burpSuite().importUserOptionsFromJson(json)
 
             "User configuration has been applied"
@@ -470,6 +507,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
             return@mcpTool "<Current editor is not editable>"
         }
 
+        requireNoStoredSecret(text)
         editor.text = text
 
         "Editor text has been set"
@@ -703,7 +741,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig, capturedRequests: C
         val tab = RepeaterSession.get(tabName)
             ?: return@mcpTool "No Repeater tab named '$tabName'."
         val next = if (append == true && tab.notes.isNotBlank()) tab.notes + "\n" + notes else notes
-        tab.notes = next
+        tab.notes = safeMetadata(next)
         RepeaterSession.save(tab)
         val written = RepeaterUi.trySetNotes(
             suiteFrameOf(api),
@@ -835,7 +873,8 @@ data class SendHttp1Request(
     override val targetPort: Int,
     override val usesHttps: Boolean,
     val responseEndMarker: String? = null,
-    val truncateAtEndMarker: Boolean? = null
+    val truncateAtEndMarker: Boolean? = null,
+    val allowTokenRequest: Boolean = false
 ) : HttpServiceParams
 
 @Serializable
@@ -847,7 +886,8 @@ data class SendHttp2Request(
     override val targetPort: Int,
     override val usesHttps: Boolean,
     val responseEndMarker: String? = null,
-    val truncateAtEndMarker: Boolean? = null
+    val truncateAtEndMarker: Boolean? = null,
+    val allowTokenRequest: Boolean = false
 ) : HttpServiceParams
 
 @Serializable

@@ -8,6 +8,8 @@ import net.portswigger.mcp.providers.ClaudeDesktopProvider
 import net.portswigger.mcp.providers.ManualProxyInstallerProvider
 import net.portswigger.mcp.providers.ProxyJarManager
 import net.portswigger.mcp.tools.CapturedHttpRequests
+import net.portswigger.mcp.security.VariableStore
+import net.portswigger.mcp.tools.ToolActivity
 
 @Suppress("unused")
 class ExtensionBase : BurpExtension {
@@ -16,9 +18,10 @@ class ExtensionBase : BurpExtension {
         api.extension().setName(ExtensionVersion.NAME)
 
         val config = McpConfig(api.persistence().extensionData(), api.logging())
+        val variableStore = VariableStore()
         val capturedRequests = CapturedHttpRequests()
         val captureRegistration = api.http().registerHttpHandler(capturedRequests)
-        val serverManager = KtorServerManager(api, capturedRequests)
+        val serverManager = KtorServerManager(api, capturedRequests, variableStore)
 
         val proxyJarManager = ProxyJarManager(api.logging())
 
@@ -26,7 +29,7 @@ class ExtensionBase : BurpExtension {
             config = config, providers = listOf(
                 ClaudeDesktopProvider(api.logging(), proxyJarManager),
                 ManualProxyInstallerProvider(api.logging(), proxyJarManager),
-            )
+            ), variableStore = variableStore
         )
 
         configUi.onEnabledToggled { enabled ->
@@ -47,6 +50,8 @@ class ExtensionBase : BurpExtension {
 
         api.extension().registerUnloadingHandler {
             serverManager.shutdown()
+            variableStore.close()
+            ToolActivity.clear()
             captureRegistration.deregister()
             capturedRequests.clear()
             configUi.cleanup()

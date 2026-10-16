@@ -2,6 +2,8 @@ package net.portswigger.mcp.config
 
 import burp.api.montoya.logging.Logging
 import burp.api.montoya.persistence.PersistedObject
+import kotlinx.serialization.json.Json
+import net.portswigger.mcp.security.VariableStore
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.properties.ReadWriteProperty
@@ -59,6 +61,23 @@ class McpConfig(storage: PersistedObject, private val logging: Logging) {
         }
 
     var filterConfigCredentials by storage.boolean(true)
+    private var tokenRequestProfileJson by storage.string("")
+
+    @Synchronized
+    fun tokenRequestProfile(): TokenRequestProfile? = tokenRequestProfileJson.takeIf(String::isNotBlank)?.let {
+        runCatching { Json.decodeFromString<TokenRequestProfile>(it) }.getOrNull()
+    }
+
+    @Synchronized
+    fun saveTokenRequestProfile(profile: TokenRequestProfile, store: VariableStore) {
+        profile.validateForPersistence(store)
+        tokenRequestProfileJson = Json.encodeToString(profile)
+    }
+
+    @Synchronized
+    fun clearTokenRequestProfile() {
+        tokenRequestProfileJson = ""
+    }
 
     private var _autoApproveTargets by storage.stringList("")
     private val targetsChangeListeners = CopyOnWriteArrayList<ListenerRegistration>()

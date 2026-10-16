@@ -9,6 +9,7 @@ import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.Swing
 import net.portswigger.mcp.config.components.*
 import net.portswigger.mcp.providers.Provider
+import net.portswigger.mcp.security.VariableStore
 import java.awt.BorderLayout
 import java.awt.Component.CENTER_ALIGNMENT
 import java.awt.FlowLayout
@@ -17,7 +18,10 @@ import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
 
-class ConfigUi(private val config: McpConfig, private val providers: List<Provider>) {
+class ConfigUi(
+    private val config: McpConfig, private val providers: List<Provider>,
+    private val variableStore: VariableStore = VariableStore()
+) {
 
     private val panel = JPanel(BorderLayout())
     val component: JComponent get() = panel
@@ -51,6 +55,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     private lateinit var advancedOptionsPanel: AdvancedOptionsPanel
     private lateinit var autoApproveTargetsPanel: AutoApproveTargetsPanel
     private lateinit var installationPanel: InstallationPanel
+    private lateinit var tokenRequestPanel: TokenRequestPanel
     private val activityLogPanel = ActivityLogPanel()
 
     private var toggleListener: ((Boolean) -> Unit)? = null
@@ -85,6 +90,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         installationPanel = InstallationPanel(
             config = config, providers = providers, reinstallNotice = reinstallNotice, parentComponent = panel
         )
+        tokenRequestPanel = TokenRequestPanel(config, variableStore)
 
         setupConfigListeners()
     }
@@ -209,6 +215,9 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         }
 
         rightPanelContent.add(serverConfigurationPanel)
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
+
+        rightPanelContent.add(tokenRequestPanel)
         rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
 
         rightPanelContent.add(autoApproveTargetsPanel)
