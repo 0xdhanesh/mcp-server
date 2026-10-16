@@ -8,18 +8,19 @@ import net.portswigger.mcp.ExtensionVersion
 import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.Swing
 import net.portswigger.mcp.config.components.*
-import net.portswigger.mcp.providers.Provider
 import net.portswigger.mcp.security.VariableStore
 import java.awt.BorderLayout
 import java.awt.Component.CENTER_ALIGNMENT
+import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Rectangle
 import java.awt.font.TextAttribute
 import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
 
 class ConfigUi(
-    private val config: McpConfig, private val providers: List<Provider>,
+    private val config: McpConfig,
     private val variableStore: VariableStore = VariableStore()
 ) {
 
@@ -49,12 +50,11 @@ class ConfigUi(
     private val validationErrorLabel = WarningLabel()
     private val hostField = JTextField(15)
     private val portField = JTextField(5)
-    private val reinstallNotice = WarningLabel("Make sure to reinstall after changing server settings")
+    private val restartNotice = WarningLabel("Restart the MCP server after changing its host or port.")
 
     private lateinit var serverConfigurationPanel: ServerConfigurationPanel
     private lateinit var advancedOptionsPanel: AdvancedOptionsPanel
     private lateinit var autoApproveTargetsPanel: AutoApproveTargetsPanel
-    private lateinit var installationPanel: InstallationPanel
     private lateinit var tokenRequestPanel: TokenRequestPanel
     private val activityLogPanel = ActivityLogPanel()
 
@@ -82,14 +82,11 @@ class ConfigUi(
         )
 
         advancedOptionsPanel = AdvancedOptionsPanel(
-            hostField = hostField, portField = portField, reinstallNotice = reinstallNotice
+            hostField = hostField, portField = portField, restartNotice = restartNotice
         )
 
         autoApproveTargetsPanel = AutoApproveTargetsPanel(config = config)
 
-        installationPanel = InstallationPanel(
-            config = config, providers = providers, reinstallNotice = reinstallNotice, parentComponent = panel
-        )
         tokenRequestPanel = TokenRequestPanel(config, variableStore)
 
         setupConfigListeners()
@@ -164,74 +161,38 @@ class ConfigUi(
     }
 
     private fun buildUi() {
-        val leftPanel = JPanel(BorderLayout()).apply {
-            background = Design.Colors.surface
-            border = BorderFactory.createEmptyBorder(
-                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.MD
-            )
-        }
-
-        val headerBox = createVerticalBox().apply {
-            add(JLabel(ExtensionVersion.NAME).apply {
-                font = Design.Typography.headlineMedium
-                foreground = Design.Colors.onSurface
-                alignmentX = CENTER_ALIGNMENT
-            })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(JLabel("Burp MCP Server exposes Burp tooling to AI clients.").apply {
-                font = Design.Typography.bodyLarge
-                foreground = Design.Colors.onSurfaceVariant
-                alignmentX = CENTER_ALIGNMENT
-            })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(
-                Anchor(
-                    text = "Learn more about the Model Context Protocol",
-                    url = "https://modelcontextprotocol.io/introduction"
-                ).apply { alignmentX = CENTER_ALIGNMENT })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(creditLine())
-            add(createVerticalStrut(Design.Spacing.LG))
-        }
-
-        leftPanel.add(headerBox, BorderLayout.NORTH)
-        leftPanel.add(activityLogPanel, BorderLayout.CENTER)
-
-        val rightPanelContent = JPanel().apply {
+        val settings = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = Design.Colors.surface
-            border = BorderFactory.createEmptyBorder(
-                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG
-            )
+            isOpaque = false
+            add(serverConfigurationPanel)
+            add(createVerticalStrut(Design.Spacing.MD))
+            add(advancedOptionsPanel)
+            add(createVerticalStrut(Design.Spacing.SM))
+            add(restartNotice)
+            add(createVerticalStrut(Design.Spacing.LG))
+            add(creditLine())
         }
-
-        val rightPanel = JScrollPane(rightPanelContent).apply {
-            border = null
-            background = Design.Colors.surface
-            viewport.background = Design.Colors.surface
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            verticalScrollBar.unitIncrement = 16
+        val tabs = JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT).apply {
+            addTab("Activity Log", JPanel(BorderLayout()).apply {
+                background = Design.Colors.surface
+                border = BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+                add(activityLogPanel, BorderLayout.CENTER)
+            })
+            addTab("Token Request", scrollablePage(tokenRequestPanel))
+            addTab("Auto-Approved HTTP Requests", scrollablePage(autoApproveTargetsPanel))
+            addTab("MCP Settings", scrollablePage(settings))
+            minimumSize = Dimension(0, 0)
         }
+        panel.add(tabs, BorderLayout.CENTER)
+    }
 
-        rightPanelContent.add(serverConfigurationPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
-
-        rightPanelContent.add(tokenRequestPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
-
-        rightPanelContent.add(autoApproveTargetsPanel)
-
-        rightPanelContent.add(createVerticalStrut(15))
-        rightPanelContent.add(advancedOptionsPanel)
-        rightPanelContent.add(createVerticalGlue())
-        rightPanelContent.add(reinstallNotice)
-        rightPanelContent.add(createVerticalStrut(10))
-
-        rightPanelContent.add(installationPanel)
-
-        val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
-        panel.add(columnsPanel, BorderLayout.CENTER)
+    private fun scrollablePage(content: JComponent): JScrollPane = JScrollPane(
+        ScrollablePage(content)
+    ).apply {
+        border = null
+        viewport.background = Design.Colors.surface
+        verticalScrollBar.unitIncrement = 16
+        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
     }
 
     private fun creditLine(): JComponent {
@@ -252,4 +213,21 @@ class ConfigUi(
             })
         }
     }
+}
+
+private class ScrollablePage(content: JComponent) : JPanel(BorderLayout()), Scrollable {
+    init {
+        background = Design.Colors.surface
+        border = BorderFactory.createEmptyBorder(
+            Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
+        )
+        add(content, BorderLayout.NORTH)
+    }
+
+    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+    override fun getScrollableUnitIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int = 16
+    override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int =
+        (if (orientation == SwingConstants.VERTICAL) visibleRect.height else visibleRect.width).coerceAtLeast(16)
+    override fun getScrollableTracksViewportWidth(): Boolean = (parent?.width ?: 0) >= preferredSize.width
+    override fun getScrollableTracksViewportHeight(): Boolean = false
 }

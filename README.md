@@ -42,6 +42,6 @@ See [USAGE.md](USAGE.md) for step-by-step curl, raw HTTP, and HTTP fields setup.
 
 ## MCP activity log
 
-The MCP tab shows the latest 200 tool calls, newest first. Open **Details** on a call to inspect its full arguments and result. **Export logs** saves the retained calls as JSON Lines for debugging, oldest first. Session values and common credential fields are redacted in the view and export; the log stays in memory until the extension unloads.
+The MCP tab has separate **Activity Log**, **Token Request**, **Auto-Approved HTTP Requests**, and **MCP Settings** views. Server Configuration and Advanced Settings are under MCP Settings. Activity Log shows the latest 200 tool calls, newest first. Open **Details** on a call to inspect its full arguments and result. **Clear logs** removes the retained calls; **Export logs** saves them as JSON Lines for debugging, oldest first. Session values and common credential fields are redacted in the view and export; the log stays in memory until cleared or the extension unloads.
 
 See [COMPARE.md](COMPARE.md) to check the differences from PortSwigger's MCP server.

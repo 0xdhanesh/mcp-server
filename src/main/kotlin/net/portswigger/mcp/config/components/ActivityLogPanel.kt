@@ -46,8 +46,17 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
         val heading = JPanel(BorderLayout())
         heading.isOpaque = false
         heading.add(Design.createSectionLabel("MCP Activity Log"), BorderLayout.WEST)
-        heading.add(JButton("Export logs").apply {
-            addActionListener { exportLogs() }
+        heading.add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, Design.Spacing.SM, 0)).apply {
+            isOpaque = false
+            add(JButton("Clear logs").apply {
+                addActionListener {
+                    expanded.clear()
+                    ToolActivity.clear()
+                }
+            })
+            add(JButton("Export logs").apply {
+                addActionListener { exportLogs() }
+            })
         }, BorderLayout.EAST)
         val subtitle = JLabel("Tool inputs and outputs. Stored secrets are redacted.").apply {
             font = Design.Typography.bodyMedium
