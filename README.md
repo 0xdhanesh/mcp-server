@@ -29,8 +29,12 @@ Burp Suite MCP Server lets AI assistants work with Burp Suite during web applica
 See [tools.md](tools.md) for the full feature list.
 See [USAGE.md](USAGE.md) for step-by-step curl, raw HTTP, and HTTP fields setup.
 
-## MCP activity log
+## MCP views and activity log
 
-The MCP tab has separate **Activity Log**, **Token Request**, **Auto-Approved HTTP Requests**, and **MCP Settings** views. Server Configuration and Advanced Settings are under MCP Settings. Activity Log shows the latest 200 tool calls, newest first. Open **Details** on a call to inspect its full arguments and result. **Clear logs** removes the retained calls; **Export logs** saves them as JSON Lines for debugging, oldest first. Session values and common credential fields are redacted in the view and export; the log stays in memory until cleared or the extension unloads.
+The MCP tab has separate **Activity Log**, **Token Request**, **Auto-Approved HTTP Requests**, and **MCP Settings** views. A divider and gear icon distinguish MCP Settings, which contains Server Configuration and Advanced Settings.
+
+In **Token Request**, memory-only field hints follow the `{{name}}` handles in the active request editor. **Dry Run check** validates the unsaved editor contents and reports handle coverage by role without saving or sending anything. **Check Automatic Readiness** checks the saved request and explains whether it can refresh a token after a 401. Automatic retry still requires an MCP HTTP send with `allowTokenRequest=true`.
+
+Activity Log shows the latest 200 tool calls, newest first. Open **Details** on a call to inspect its full arguments and result. **Clear logs** removes the retained calls; **Export logs** saves them as JSON Lines for debugging, oldest first. Session values and common credential fields are redacted in the view and export; the log stays in memory until cleared or the extension unloads.
 
 See [COMPARE.md](COMPARE.md) to check the differences from PortSwigger's MCP server.
