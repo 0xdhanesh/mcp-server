@@ -5,6 +5,7 @@ import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.config.RawHttpScheme
 import net.portswigger.mcp.config.TokenRequestMode
 import net.portswigger.mcp.config.TokenRequestProfile
+import net.portswigger.mcp.config.TokenRequestReadiness
 import net.portswigger.mcp.config.TokenSelectorMode
 import net.portswigger.mcp.config.readiness
 import net.portswigger.mcp.security.VariableStore
@@ -25,6 +26,8 @@ import javax.swing.JPasswordField
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
 import javax.swing.JTextField
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 
 /** Burp-persisted token request template. Secret values are supplied from VariableStore at send time. */
 class TokenRequestPanel(private val config: McpConfig, private val store: VariableStore) : JPanel() {
@@ -40,13 +43,15 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     private val defaultIdentity = JTextField()
     private val selectorMode = JComboBox(arrayOf("JSONPath", "Regex"))
     private val selector = JTextField("$.access_token")
-    private val inputName = JTextField()
-    private val inputIdentity = JTextField()
+    private val inputName = PlaceholderTextField("username / password")
+    private val inputIdentity = PlaceholderTextField("admin / developer")
     private val inputHost = JTextField()
-    private val inputValue = JPasswordField()
-    private val cards = JPanel(CardLayout())
+    private val inputValue = PlaceholderPasswordField("username / password will be masked as you type")
+    private val memoryValuesHint = JLabel()
+    private val cards = JPanel(VisibleCardLayout())
     private val status = JLabel(" ")
     private val readinessStatus = JLabel(" ")
+    private val readinessPanel = JPanel()
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -85,6 +90,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         cards.alignmentX = LEFT_ALIGNMENT
         add(cards)
         mode.addActionListener { showMode() }
+        listOf(template, url, headers, body).forEach { it.document.addDocumentListener(onChange(::updateHandleHints)) }
 
         add(field("Stored variable name", variableName))
         add(field("Token use host (blank = request host)", targetHost))
@@ -103,19 +109,10 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         status.font = Design.Typography.bodyMedium
         status.foreground = Design.Colors.onSurfaceVariant
         add(status)
-        readinessStatus.alignmentX = LEFT_ALIGNMENT
-        readinessStatus.font = Design.Typography.bodyMedium
-        readinessStatus.foreground = Design.Colors.onSurfaceVariant
-        add(readinessStatus)
-        add(JLabel("MCP HTTP sends require allowTokenRequest=true to acquire a token after 401.").apply {
-            alignmentX = LEFT_ALIGNMENT
-            font = Design.Typography.labelMedium
-            foreground = Design.Colors.onSurfaceVariant
-        })
 
         add(Box.createVerticalStrut(Design.Spacing.MD))
         add(Design.createSectionLabel("Memory-only request values"))
-        add(JLabel("Store {{username}} and {{password}} for each role. Values are never saved with the request.").apply {
+        add(memoryValuesHint.apply {
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
@@ -124,18 +121,37 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         add(field("Identity / role", inputIdentity))
         add(field("Request host (blank = token request host)", inputHost))
         add(field("Value (cleared after storing)", inputValue))
-        add(JButton("Store value in memory").apply {
+        add(JPanel(FlowLayout(FlowLayout.LEFT, 0, Design.Spacing.SM)).apply {
+            isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            addActionListener { storeInputValue() }
+            add(JButton("Store value in memory").apply { addActionListener { storeInputValue() } })
+            add(Box.createHorizontalStrut(Design.Spacing.SM))
+            add(JButton("Dry Run check").apply { addActionListener { dryRunCheck() } })
+            add(Box.createHorizontalStrut(Design.Spacing.SM))
+            add(JButton("Check Automatic Readiness").apply {
+                addActionListener {
+                    readinessPanel.isVisible = true
+                    refreshReadiness()
+                }
+            })
         })
-        add(JButton("Check 401 readiness").apply {
+
+        readinessStatus.font = Design.Typography.bodyMedium
+        readinessPanel.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            addActionListener { refreshReadiness() }
-        })
+            isVisible = false
+            add(readinessStatus)
+            add(JLabel("Automatic retry only runs for MCP HTTP sends that pass allowTokenRequest=true.").apply {
+                font = Design.Typography.labelMedium
+                foreground = Design.Colors.onSurfaceVariant
+            })
+        }
+        add(readinessPanel)
 
         config.tokenRequestProfile()?.let(::load)
         showMode()
-        refreshReadiness()
     }
 
     private fun field(label: String, component: JComponent): JPanel = JPanel(BorderLayout(0, Design.Spacing.SM / 2)).apply {
@@ -160,6 +176,26 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
 
     private fun showMode() {
         (cards.layout as CardLayout).show(cards, if (mode.selectedIndex == 0) "template" else "fields")
+        cards.revalidate()
+        updateHandleHints()
+    }
+
+    /** Mirrors the {{name}} handles in the active request editor into the memory-only input hints. */
+    private fun updateHandleHints() {
+        val source = if (mode.selectedIndex == 0) template.text else listOf(url.text, headers.text, body.text).joinToString("\n")
+        val names = HANDLE.findAll(source).map { it.groupValues[1] }.distinct().toList()
+            .ifEmpty { listOf("username", "password") }
+        val handles = names.map { "{{$it}}" }
+        val joined = if (handles.size == 1) handles.single() else handles.dropLast(1).joinToString(", ") + " and " + handles.last()
+        memoryValuesHint.text = "Store $joined for each role. Values are never saved with the request."
+        inputName.placeholder = names.joinToString(" / ")
+        inputValue.placeholder = names.joinToString(" / ") + " will be masked as you type"
+    }
+
+    private fun onChange(action: () -> Unit) = object : DocumentListener {
+        override fun insertUpdate(e: DocumentEvent) = action()
+        override fun removeUpdate(e: DocumentEvent) = action()
+        override fun changedUpdate(e: DocumentEvent) = action()
     }
 
     private fun current(): TokenRequestProfile = TokenRequestProfile(
@@ -181,7 +217,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         try {
             config.saveTokenRequestProfile(current(), store)
             status.foreground = Design.Colors.onSurfaceVariant
-            status.text = "Token request saved in Burp extension data."
+            // status.text = "Token request saved in Burp extension data."
             refreshReadiness()
         } catch (error: Exception) {
             status.foreground = Design.Colors.error
@@ -235,13 +271,64 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         refreshReadiness()
     }
 
+    /** Shows whether the saved token request can run on its own after a 401. Only updates once the result is shown. */
     private fun refreshReadiness() {
+        if (!readinessPanel.isVisible) return
         val profile = config.tokenRequestProfile()
-        readinessStatus.text = if (profile == null) "Automatic 401: no token request saved." else {
-            "Automatic 401: " + runCatching { profile.readiness(store).summary() }
-                .getOrDefault("Saved token request is invalid.")
+        val readiness = profile?.let { runCatching { it.readiness(store) }.getOrNull() }
+        val (ready, message) = when {
+            profile == null -> false to "no token request is saved. Click Save request first."
+            readiness == null -> false to "the saved token request could not be parsed. Fix it and click Save request."
+            else -> automaticMessage(readiness)
+        }
+        readinessStatus.foreground = if (ready) Design.Colors.onSurface else Design.Colors.error
+        readinessStatus.text = "Automatic 401 retry: " + (if (ready) "Ready, " else "Not ready, ") + message
+        revalidate()
+    }
+
+    private fun automaticMessage(r: TokenRequestReadiness): Pair<Boolean, String> {
+        val host = r.requestHost
+        val default = r.defaultRole
+        return when {
+            default.isNotBlank() && r.missingForDefault.isEmpty() ->
+                true to "a new token will be requested as role \"$default\" from $host."
+            default.isNotBlank() && r.readyRoles.size == 1 ->
+                true to "role \"$default\" is missing ${handles(r.missingForDefault)}, so role \"${r.readyRoles.single()}\" will be used instead."
+            default.isNotBlank() ->
+                false to "role \"$default\" has no stored value for ${handles(r.missingForDefault)} on $host. Add them under Memory-only request values."
+            r.readyRoles.size == 1 ->
+                true to "a new token will be requested as role \"${r.readyRoles.single()}\", the only role with every value."
+            r.readyRoles.size > 1 ->
+                false to "roles ${r.readyRoles.joinToString(", ")} all have every value. Set a default role to choose one."
+            else ->
+                false to "no role has stored values for ${handles(r.requiredNames)} on $host. Add them under Memory-only request values."
         }
     }
+
+    /** Checks the request currently in the editor against stored values. Nothing is saved or sent. */
+    private fun dryRunCheck() {
+        val readiness = runCatching { current().readiness(store) }.getOrNull()
+        if (readiness == null) {
+            status.foreground = Design.Colors.error
+            status.text = "Dry run: the request in the editor could not be parsed. Check its syntax."
+            return
+        }
+        val host = readiness.requestHost
+        val roles = store.listNames().filter { it.host == host }.map { it.identity }.distinct().sorted()
+        val coverage = when {
+            readiness.requiredNames.isEmpty() -> "It uses no {{name}} handles."
+            roles.isEmpty() -> "No values are stored for $host yet."
+            else -> roles.joinToString("; ") { role ->
+                val missing = readiness.missingFor(role, store)
+                if (missing.isEmpty()) "$role: all set" else "$role: missing ${handles(missing)}"
+            } + "."
+        }
+        status.foreground = Design.Colors.onSurfaceVariant
+        status.text = if (readiness.requiredNames.isEmpty()) "Dry run (nothing sent): request to $host is valid. $coverage"
+        else "Dry run (nothing sent): request to $host needs ${handles(readiness.requiredNames)}. $coverage"
+    }
+
+    private fun handles(names: Collection<String>): String = names.joinToString(", ") { "{{$it}}" }
 
     private fun load(profile: TokenRequestProfile) {
         mode.selectedIndex = if (profile.mode == TokenRequestMode.TEMPLATE) 0 else 1
@@ -257,5 +344,57 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         selectorMode.selectedIndex = if (profile.selectorMode == TokenSelectorMode.JSON_PATH) 0 else 1
         selector.text = profile.selector
         status.text = "Token request loaded from Burp extension data."
+    }
+}
+
+/** CardLayout that sizes to the visible card instead of the largest one. */
+private class VisibleCardLayout : CardLayout() {
+    override fun preferredLayoutSize(parent: java.awt.Container): Dimension = visibleSize(parent) { it.preferredSize }
+    override fun minimumLayoutSize(parent: java.awt.Container): Dimension = visibleSize(parent) { it.minimumSize }
+
+    private fun visibleSize(parent: java.awt.Container, size: (java.awt.Component) -> Dimension): Dimension {
+        val insets = parent.insets
+        val card = parent.components.firstOrNull { it.isVisible } ?: return Dimension(insets.left + insets.right, insets.top + insets.bottom)
+        val d = size(card)
+        return Dimension(d.width + insets.left + insets.right, d.height + insets.top + insets.bottom)
+    }
+}
+
+/** Paints [placeholder] in a muted color while the field is empty. */
+private fun paintPlaceholder(g: java.awt.Graphics, field: JTextField, placeholder: String) {
+    if (field.document.length > 0) return
+    val g2 = g.create() as java.awt.Graphics2D
+    try {
+        g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        g2.font = field.font
+        g2.color = Design.Colors.onSurfaceVariant
+        val insets = field.insets
+        val metrics = g2.fontMetrics
+        val y = insets.top + (field.height - insets.top - insets.bottom - metrics.height) / 2 + metrics.ascent
+        g2.drawString(placeholder, insets.left, y)
+    } finally {
+        g2.dispose()
+    }
+}
+
+private val HANDLE = Regex("\\{\\{([A-Za-z_][A-Za-z0-9_]*)}}")
+
+private class PlaceholderTextField(placeholder: String) : JTextField() {
+    var placeholder: String = placeholder
+        set(value) { field = value; repaint() }
+
+    override fun paintComponent(g: java.awt.Graphics) {
+        super.paintComponent(g)
+        paintPlaceholder(g, this, placeholder)
+    }
+}
+
+private class PlaceholderPasswordField(placeholder: String) : JPasswordField() {
+    var placeholder: String = placeholder
+        set(value) { field = value; repaint() }
+
+    override fun paintComponent(g: java.awt.Graphics) {
+        super.paintComponent(g)
+        paintPlaceholder(g, this, placeholder)
     }
 }

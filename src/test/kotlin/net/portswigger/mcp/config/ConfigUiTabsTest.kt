@@ -7,6 +7,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import net.portswigger.mcp.tools.ToolActivity
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
@@ -14,6 +15,7 @@ import java.awt.Container
 import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JScrollPane
+import javax.swing.JSeparator
 import javax.swing.JTabbedPane
 import javax.swing.SwingUtilities
 
@@ -25,14 +27,20 @@ class ConfigUiTabsTest {
             try {
                 val tabs = walk(ui.component).filterIsInstance<JTabbedPane>().single()
                 assertEquals(listOf(
-                    "Activity Log", "Token Request", "Auto-Approved HTTP Requests", "MCP Settings"
+                    "Activity Log", "Token Request", "Auto-Approved HTTP Requests", "", "MCP Settings"
                 ), (0 until tabs.tabCount).map(tabs::getTitleAt))
                 assertEquals(JTabbedPane.SCROLL_TAB_LAYOUT, tabs.tabLayoutPolicy)
 
-                (1 until tabs.tabCount).forEach { index ->
+                val separatorIndex = 3
+                assertFalse(tabs.isEnabledAt(separatorIndex))
+                assertTrue(tabs.getTabComponentAt(separatorIndex) is JSeparator)
+
+                (1 until tabs.tabCount).filter { it != separatorIndex }.forEach { index ->
                     assertTrue(tabs.getComponentAt(index) is JScrollPane)
                 }
-                val settingsLabels = walk(tabs.getComponentAt(3)).filterIsInstance<JLabel>().map { it.text }
+                val settingsIndex = tabs.indexOfTab("MCP Settings")
+                assertTrue((tabs.getTabComponentAt(settingsIndex) as JLabel).icon != null)
+                val settingsLabels = walk(tabs.getComponentAt(settingsIndex)).filterIsInstance<JLabel>().map { it.text }
                 assertTrue("Server Configuration" in settingsLabels)
                 assertTrue("Advanced Settings" in settingsLabels)
                 assertTrue(walk(ui.component).filterIsInstance<JButton>().none { it.text.contains("Install") })

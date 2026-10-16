@@ -9,11 +9,18 @@ import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.Swing
 import net.portswigger.mcp.config.components.*
 import net.portswigger.mcp.security.VariableStore
+import java.awt.BasicStroke
 import java.awt.BorderLayout
-import java.awt.Component.CENTER_ALIGNMENT
+import java.awt.Component
+import java.awt.Component.LEFT_ALIGNMENT
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Rectangle
+import java.awt.RenderingHints
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Path2D
 import java.awt.font.TextAttribute
 import javax.swing.*
 import javax.swing.Box.*
@@ -180,7 +187,15 @@ class ConfigUi(
             })
             addTab("Token Request", scrollablePage(tokenRequestPanel))
             addTab("Auto-Approved HTTP Requests", scrollablePage(autoApproveTargetsPanel))
+            addTab("", JPanel())
+            setTabComponentAt(tabCount - 1, JSeparator(SwingConstants.VERTICAL).apply {
+                preferredSize = Dimension(1, 18)
+            })
+            setEnabledAt(tabCount - 1, false)
             addTab("MCP Settings", scrollablePage(settings))
+            setTabComponentAt(tabCount - 1, JLabel("MCP Settings", GearIcon(), SwingConstants.LEADING).apply {
+                iconTextGap = Design.Spacing.SM
+            })
             minimumSize = Dimension(0, 0)
         }
         panel.add(tabs, BorderLayout.CENTER)
@@ -198,7 +213,7 @@ class ConfigUi(
     private fun creditLine(): JComponent {
         return JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
             isOpaque = false
-            alignmentX = CENTER_ALIGNMENT
+            alignmentX = LEFT_ALIGNMENT
             add(JLabel("- Vibed by 0xdhanesh || ").apply {
                 font = Design.Typography.bodyLarge
                 foreground = Design.Colors.onSurfaceVariant
@@ -230,4 +245,40 @@ private class ScrollablePage(content: JComponent) : JPanel(BorderLayout()), Scro
         (if (orientation == SwingConstants.VERTICAL) visibleRect.height else visibleRect.width).coerceAtLeast(16)
     override fun getScrollableTracksViewportWidth(): Boolean = (parent?.width ?: 0) >= preferredSize.width
     override fun getScrollableTracksViewportHeight(): Boolean = false
+}
+
+/** Outline gear drawn in the host component's foreground color, matching Burp's settings icon. */
+private class GearIcon(private val size: Int = 16) : Icon {
+    override fun getIconWidth(): Int = size
+    override fun getIconHeight(): Int = size
+
+    override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+            g2.color = c?.foreground ?: Design.Colors.onSurface
+            g2.translate(x + size / 2.0, y + size / 2.0)
+            val scale = size / 16.0
+            g2.scale(scale, scale)
+            g2.stroke = BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+
+            val teeth = 8
+            val outer = 7.2
+            val inner = 5.4
+            val path = Path2D.Double()
+            for (i in 0 until teeth * 4) {
+                val angle = Math.PI * 2 * i / (teeth * 4) - Math.PI / 2
+                val r = if ((i / 2) % 2 == 0) outer else inner
+                val px = Math.cos(angle) * r
+                val py = Math.sin(angle) * r
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.closePath()
+            g2.draw(path)
+            g2.draw(Ellipse2D.Double(-2.3, -2.3, 4.6, 4.6))
+        } finally {
+            g2.dispose()
+        }
+    }
 }
