@@ -64,6 +64,7 @@ class ToolsKtTest {
             every { getBoolean("enabled") } returns true
             every { getBoolean("configEditingTooling") } returns true
             every { getBoolean("requireHttpRequestApproval") } returns false
+            every { getBoolean("enforceBurpTargetScope") } returns false
             every { getBoolean("requireDataAccessApproval") } returns false
             every { getBoolean("_alwaysAllowHttpHistory") } returns false
             every { getBoolean("_alwaysAllowCapturedRequests") } returns false
@@ -1176,7 +1177,7 @@ class ToolsKtTest {
 
             mockkObject(RepeaterUi)
             try {
-                every { RepeaterUi.trySend(any(), "proxy-42", any(), any()) } returns
+                every { RepeaterUi.trySend(any(), "proxy-42", any(), any(), any()) } returns
                     RepeaterUiSend.Response("HTTP/2 200 OK\r\n\r\nfresh")
 
                 runBlocking {
@@ -1188,7 +1189,7 @@ class ToolsKtTest {
                 }
 
                 verify(exactly = 1) { repeater.sendToRepeater(request, "proxy-42") }
-                verify(exactly = 1) { RepeaterUi.trySend(any(), "proxy-42", any(), any()) }
+                verify(exactly = 1) { RepeaterUi.trySend(any(), "proxy-42", any(), any(), any()) }
             } finally {
                 unmockkObject(RepeaterUi)
             }
@@ -1212,7 +1213,7 @@ class ToolsKtTest {
 
             mockkObject(RepeaterUi)
             try {
-                every { RepeaterUi.trySend(any(), "captured-91", any(), any()) } returns
+                every { RepeaterUi.trySend(any(), "captured-91", any(), any(), any()) } returns
                     RepeaterUiSend.Response("HTTP/1.1 200 OK\r\n\r\nfresh login")
 
                 runBlocking {
@@ -1232,7 +1233,7 @@ class ToolsKtTest {
                     )
                     assertTrue(sent.expectTextContent().contains("fresh login"))
 
-                    every { RepeaterUi.trySend(any(), "captured-missing-control", any(), any()) } returns
+                    every { RepeaterUi.trySend(any(), "captured-missing-control", any(), any(), any()) } returns
                         RepeaterUiSend.NotAvailable("Repeater Send control unavailable")
                     val unavailable = client.callTool(
                         "send_recorded_request_to_repeater",

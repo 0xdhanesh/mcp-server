@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.security.HttpRequestSecurity
+import net.portswigger.mcp.security.TargetScopeSecurity
 import java.util.regex.Pattern
 
 private val summaryJson = Json { encodeDefaults = true }
@@ -67,11 +68,13 @@ internal fun issueRepeaterTab(
     val tab = RepeaterSession.get(tabName)
         ?: return "No Repeater tab named '$tabName'. Send a request to Repeater first, and pass that tab name."
     requireNoStoredSecret(tab.request.toString())
+    if (replacementContent.isNullOrBlank()) TargetScopeSecurity.check(tab.request, config)
 
     if (!replacementContent.isNullOrBlank()) {
         requireNoStoredSecret(replacementContent)
         val service = tab.request.httpService()
         tab.request = HttpRequest.httpRequest(service, normalizeHttpContent(replacementContent))
+        TargetScopeSecurity.check(tab.request, config)
         if (httpModeName == null) tab.httpMode = HttpMode.HTTP_1
         val opened = suiteFrame(api)
         RepeaterUi.preservingView(opened) {
@@ -96,8 +99,21 @@ internal fun issueRepeaterTab(
     }
 
     val explicitHttp = issueFrom?.trim()?.let { it.equals("http", true) || it.equals("api", true) } == true
+    // Burp's UI destination can change independently of the editor text. Montoya cannot
+    // verify that destination here, so enforced sends use the exact checked request via API.
+    val scopeCheckedApi = config.enforceBurpTargetScope
     var sendMiss: String? = null
-    when (val ui = RepeaterUi.trySend(frame, tab.name, expectedRequest = tab.request.toString())) {
+    TargetScopeSecurity.check(tab.request, config)
+    val attempt = if (scopeCheckedApi) {
+        RepeaterUiSend.NotAvailable("Scope enforcement uses the checked request destination through the HTTP API, not Repeater's independently editable UI destination.")
+    } else {
+        RepeaterUi.trySend(frame, tab.name, expectedRequest = tab.request.toString(), beforeSend = {
+            // If enforcement was enabled while locating the UI, fail closed before clicking.
+            if (config.enforceBurpTargetScope) throw net.portswigger.mcp.security.OutOfScopeException()
+            TargetScopeSecurity.check(tab.request, config)
+        })
+    }
+    when (val ui = attempt) {
         is RepeaterUiSend.Response -> {
             tab.lastResponse = ui.text
             RepeaterSession.save(tab)
@@ -113,7 +129,7 @@ internal fun issueRepeaterTab(
         }
 
         is RepeaterUiSend.NotAvailable -> {
-            if (!explicitHttp) {
+            if (!explicitHttp && !scopeCheckedApi) {
                 return ui.detail +
                     "\nThe request stayed in Repeater tab '${tab.name}'. The Repeater response pane was not updated."
             }
@@ -130,6 +146,7 @@ internal fun issueRepeaterTab(
     }
 
     val service = tab.request.httpService()
+    TargetScopeSecurity.check(tab.request, config)
     val allowed = runBlocking {
         HttpRequestSecurity.checkHttpRequestPermission(
             service.host(), service.port(), config, tab.request.toString(), api
@@ -143,6 +160,7 @@ internal fun issueRepeaterTab(
     api.logging().logToOutput(
         "MCP issuing Repeater tab '${tab.name}' via Http.sendRequest ${service.host()}:${service.port()} connection $connection"
     )
+    TargetScopeSecurity.check(tab.request, config)
     val response = api.http().sendRequest(tab.request, tab.httpMode, connection)
     val raw = response?.toString() ?: "<no response>"
     tab.lastResponse = raw

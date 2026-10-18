@@ -32,6 +32,40 @@ import org.junit.jupiter.api.Assumptions
 
 class ResponseEndTest {
     @Test
+    fun `scope denial at Repeater click propagates once and never clicks Send`() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless())
+        val raw = "GET / HTTP/1.1\r\nHost: outside.test\r\n\r\n"
+        val request = JTextArea(raw)
+        val send = JButton("Send")
+        var clicks = 0
+        var checks = 0
+        send.addActionListener { clicks++ }
+        val panel = JPanel(BorderLayout()).apply {
+            add(send, BorderLayout.NORTH)
+            add(request, BorderLayout.CENTER)
+        }
+        val tabs = JTabbedPane().apply { addTab("scope-check", panel) }
+        val top = JTabbedPane().apply { addTab("Repeater", tabs) }
+        val frame = JFrame()
+        SwingUtilities.invokeAndWait {
+            frame.contentPane.add(top)
+            frame.setSize(800, 400)
+            frame.isVisible = true
+        }
+        try {
+            org.junit.jupiter.api.Assertions.assertThrows(net.portswigger.mcp.security.OutOfScopeException::class.java) {
+                RepeaterUi.trySend(frame, "scope-check", 2_000, raw) { visible ->
+                    checks++
+                    assertEquals(raw, visible)
+                    throw net.portswigger.mcp.security.OutOfScopeException()
+                }
+            }
+            assertEquals(1, checks)
+            assertEquals(0, clicks)
+        } finally { SwingUtilities.invokeAndWait { frame.dispose() } }
+    }
+
+    @Test
     fun `blank marker leaves the response unchanged`() {
         val response = "HTTP/1.1 200 OK\r\n\r\nbody"
         assertEquals(response, presentResponse(response, null, false))

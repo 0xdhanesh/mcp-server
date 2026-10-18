@@ -2,6 +2,24 @@
 
 This catalog lists the available tool groups. **Tool name to invoke** is the name exposed to an AI agent. The sanity results below record live checks with a locally loaded v1.3.8 extension on 14 October 2026, using `http://localhost:3000/` where a target was needed. **Pass** means the observed result matched the check; **Failed** means the attempted check did not produce the expected result. **Not validated** means the required UI state or Burp edition was unavailable, or the tool was not exercised. A failed check does not by itself establish a tool defect.
 
+## Target scope and Site Map (MVP)
+
+| Tool name to invoke | Arguments | Result / behavior |
+| --- | --- | --- |
+| `get_scope_status` | `url` | JSON `{ "inScope": true/false, "url": "..." }` from Burp Target scope. |
+| `include_in_scope` | `url` | Includes an agreed URL/prefix; JSON `{ "ok": true, "url": "..." }`. Requires configuration editing enabled. |
+| `exclude_from_scope` | `url` | Excludes a URL/prefix; same result and configuration-editing requirement. |
+| `list_sitemap` | Optional `prefix`, `offset` (default 0), `limit` (default 20, range 1–100) | JSON `items`, `total`, `nextOffset`. Summaries contain `id`, URL, method, status, request/response byte lengths; no bodies. |
+| `get_sitemap_item` | `id` from `list_sitemap` | Redacted request/response and notes, using the history 5,000-character JSON limit. |
+
+Scope URLs and site-map prefixes must be absolute HTTP(S) URLs, including scheme and path; userinfo and fragments are rejected. Scope changes use Montoya's include/exclude semantics and are visible in Burp Target scope. They do not change MCP auto-approval. Enable **MCP Settings → Enable tools that can edit your config** to allow scope changes; an agent must not expand the agreed scope to work around a denial.
+
+**Enforce Burp Target scope** is ON by default, including for existing installations. An empty scope blocks MCP sends. The shared gate checks each fully built request after variable expansion, independently of HTTP approval and auto-approved targets. Denials return an MCP error with text JSON `{ "code": "OUT_OF_SCOPE" }`; there is no approval retry. Include the token endpoint as well as the application endpoint when using token acquisition or automatic refresh. The gate covers HTTP/1.1, HTTP/2, Repeater UI/API sends (including history/capture replay), session acquisition, authorization replay, and automatic retries. Only the fixed HTTP extension-command probe at `127.0.0.1:1` is exempt; custom probe targets are gated. Turning enforcement OFF restores the prior scope behavior and leaves existing approvals in effect. This is a gate on this extension's sends, not a global fence on manual Burp traffic, other extensions, or attacks subsequently launched manually in Intruder.
+
+With enforcement on, MCP Repeater sends use the HTTP API and the tab's stored destination, because Burp's independently editable UI destination cannot be verified through this API. The result explains that the Repeater response pane is not updated. Enforcement OFF retains the existing UI-send behavior. Existing templates still require a concrete routing host; this MVP does not add host-variable support.
+
+Site-map reads share **HTTP history access** approval and do not send requests or change Scanner issue tools. `prefix` is passed to `SiteMapFilter.prefixFilter`. Items sort by opaque, session-local content handles; identical exchanges are deduplicated. For a static map, pass each `nextOffset` with the same prefix/limit until it is `null`: pages do not overlap or omit items. Changes to the live map can shift pages. A handle resolves unchanged request/response content during this MCP server session; changed/removed items and server restarts require listing again (`SITEMAP_ITEM_NOT_FOUND`). Common credential fields and stored session values are masked before detail truncation. A changed annotation alone does not invalidate a handle.
+
 ## Session variables and authorization replay
 
 | Name | Tool name to invoke | Description |
@@ -88,3 +106,11 @@ This catalog lists the available tool groups. **Tool name to invoke** is the nam
 | --- | --- | --- | --- |
 | List extension tools | `list_extension_tools` | Discover commands offered by other Burp extensions. | Pass (ShotUp discovered) |
 | Call extension command | `call_extension_command` | Run a command offered by another Burp extension. | Pass (ShotUp command ran) |
+
+## Phase 2+ backlog (not implemented in this MVP)
+
+- Scanner crawl/audit/poll/report (Professional), behind human approval and the scope gate.
+- Cookie jar list/get/set and a VariableStore bridge, with redacted values or handles.
+- Response variations / keywords analyzers alongside authorization replay.
+- Replace blocking approval bridges with suspending gates in a separate guardrail pass.
+- Batch sends, Comparer, Intruder result reads, match/replace, macros, and the separate Skills project remain outside this MVP.

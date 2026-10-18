@@ -21,6 +21,7 @@ import net.portswigger.mcp.security.DataAccessType
 import net.portswigger.mcp.security.HttpRequestSecurity
 import net.portswigger.mcp.security.RequestTemplate
 import net.portswigger.mcp.security.VariableStore
+import net.portswigger.mcp.security.TargetScopeSecurity
 
 @Serializable
 data class SetSessionVar(val name: String, val value: String, val identity: String, val host: String)
@@ -243,12 +244,14 @@ internal fun executeAcquireSessionVar(
         require(!original.toString().contains("{{") && !original.toString().contains("}}")) {
             "History request contains unresolved placeholders."
         }
+        TargetScopeSecurity.check(original, config)
         require(runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(
                 service.host(), service.port(), config, McpLogSanitizer.text(original.toString(), store), api
             )
         }) { "Send HTTP request denied by Burp Suite." }
         val started = System.nanoTime()
+        TargetScopeSecurity.check(original, config)
         val sent = try { api.http().sendRequest(original) } catch (_: Exception) {
             throw IllegalStateException("Token request failed.")
         } ?: throw IllegalStateException("No HTTP response.")
@@ -291,6 +294,9 @@ internal fun executeAuthzReplay(input: AuthzReplay, api: MontoyaApi, config: Mcp
     require(expect != null || ("admin" in roles && roles.any { it != "admin" })) {
         "Default assertions need admin and a lower-privilege role."
     }
+    // Resolve and check every role before prompting or sending any part of the replay.
+    val prepared = roles.associateWith { store.expand(store.redact(template), it, selectedHost) }
+    prepared.values.forEach { TargetScopeSecurity.check(it, config) }
     require(runBlocking { DataAccessSecurity.checkDataAccessPermission(DataAccessType.ORGANIZER, config) }) {
         "Organizer access denied by Burp Suite."
     }
@@ -300,14 +306,13 @@ internal fun executeAuthzReplay(input: AuthzReplay, api: MontoyaApi, config: Mcp
         )
     }) { "Send HTTP request denied by Burp Suite." }
 
-    // Resolve every role before sending any request; a missing or cross-role value aborts the whole replay.
-    val prepared = roles.associateWith { store.expand(store.redact(template), it, selectedHost) }
     val lines = mutableListOf<String>()
     val bodies = LinkedHashMap<String, String>()
     var allPassed = true
     for (role in roles) {
         val outgoing = prepared.getValue(role)
         val start = System.nanoTime()
+        TargetScopeSecurity.check(outgoing, config)
         val exchange = api.http().sendRequest(outgoing) ?: throw IllegalStateException("No HTTP response.")
         val elapsed = (System.nanoTime() - start) / 1_000_000
         val response = exchange.response() ?: throw IllegalStateException("No HTTP response.")
@@ -401,13 +406,15 @@ internal fun sendBound(
     val parsed = RequestTemplate.parse(template, rawUsesHttps)
     require(parsed.host == VariableStore.normalizeHost(host)) { "Request host mismatch." }
     require(store.redact(template) == template) { "Use variable handles rather than literal stored secrets." }
+    val outgoing = store.expand(template, identity, host, rawUsesHttps)
+    TargetScopeSecurity.check(outgoing, config)
     require(runBlocking {
         HttpRequestSecurity.checkHttpRequestPermission(
             parsed.service.host(), parsed.service.port(), config, store.redact(template), api
         )
     }) { "Send HTTP request denied by Burp Suite." }
-    val outgoing = store.expand(template, identity, host, rawUsesHttps)
     val start = System.nanoTime()
+    TargetScopeSecurity.check(outgoing, config)
     val response = api.http().sendRequest(outgoing) ?: throw IllegalStateException("No HTTP response.")
     return BoundResponse(response, (System.nanoTime() - start) / 1_000_000)
 }

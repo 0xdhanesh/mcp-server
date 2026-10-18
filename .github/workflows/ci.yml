@@ -70,7 +70,8 @@ jobs:
   release:
     name: Publish extension JAR
     needs: build
-    if: ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'dependabot/') }}
+    # Feature branches are review builds; publishing requires a separate approved change.
+    if: ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'dependabot/') && !startsWith(github.ref_name, 'feat/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:

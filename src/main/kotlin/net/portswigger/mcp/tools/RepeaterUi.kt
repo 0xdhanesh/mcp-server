@@ -55,7 +55,8 @@ internal object RepeaterUi {
         frame: Frame?,
         tabName: String,
         timeoutMs: Long = 15_000,
-        expectedRequest: String? = null
+        expectedRequest: String? = null,
+        beforeSend: (String?) -> Unit = {}
     ): RepeaterUiSend {
         if (frame == null || runCatching { frame.isDisplayable }.getOrDefault(false) == false) {
             return RepeaterUiSend.NotAvailable("Burp's window is not available, so Repeater Send could not be used.")
@@ -91,6 +92,10 @@ internal object RepeaterUi {
                         return@preservingView null
                     }
                     val before = editorTexts(target)
+                    val visibleRequests = walk(target).mapNotNull { node ->
+                        componentText(node)?.takeIf(::looksLikeHttpRequest)
+                    }.distinct().toList()
+                    beforeSend(visibleRequests.singleOrNull())
                     val via = if (ready != null) {
                         pressSend(ready)
                         "Send button"
@@ -101,7 +106,13 @@ internal object RepeaterUi {
                     }
                     FiredSend(target, before, via)
                 }
-            }.getOrNull()
+            }.getOrElse { error ->
+                // Never swallow a scope denial into the UI retry loop.
+                val denial = generateSequence(error) { it.cause }
+                    .filterIsInstance<net.portswigger.mcp.security.OutOfScopeException>().firstOrNull()
+                if (denial != null) throw denial
+                null
+            }
             if (fired == null) Thread.sleep(150)
         }
 

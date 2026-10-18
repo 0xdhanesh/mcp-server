@@ -49,6 +49,7 @@ class AutoAuthTest {
             targetHost = "api.target"
         )
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.tokenRequestProfile() } returns profile
         every { config.requireHttpRequestApproval } returns false
 
@@ -124,6 +125,7 @@ class AutoAuthTest {
         val request = mockk<HttpRequest>()
         val first = exchange(401, "{}")
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { api.http() } returns http
         every { http.sendRequest(request) } returns first
         every { config.tokenRequestProfile() } returns TokenRequestProfile(
@@ -149,6 +151,7 @@ class AutoAuthTest {
         val request = mockk<HttpRequest>()
         val first = exchange(401, "{}")
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { api.http() } returns http
         every { http.sendRequest(request, HttpMode.HTTP_2) } returns first
         every { config.tokenRequestProfile() } returns null
@@ -167,6 +170,7 @@ class AutoAuthTest {
         val request = mockk<HttpRequest>()
         val first = exchange(401, "{\"code\":\"TOKEN_MISSING\"}")
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { api.http() } returns http
         every { http.sendRequest(request) } returns first
         every { http.sendRequest(request, HttpMode.HTTP_2) } returns first
