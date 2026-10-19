@@ -193,14 +193,31 @@ internal object McpLogSanitizer {
 internal object ToolResultRedaction {
     @Volatile var store: VariableStore? = null
 
-    fun apply(result: CallToolResult, active: VariableStore? = store): CallToolResult {
+    fun apply(result: CallToolResult, active: VariableStore? = store, siteMapResult: Boolean = false): CallToolResult {
         active ?: return result
         return CallToolResult(
             content = result.content.map { block ->
-                TextContent(if (block is TextContent) active.redact(block.text.orEmpty()) else "<non-text content withheld>")
+                TextContent(if (block is TextContent) {
+                    if (siteMapResult && result.isError != true) redactSiteMapJson(block.text.orEmpty(), active)
+                    else active.redact(block.text.orEmpty())
+                } else "<non-text content withheld>")
             },
             isError = result.isError
         )
+    }
+
+    private fun redactSiteMapJson(text: String, active: VariableStore): String {
+        // Preserve schema keys and opaque generated handles: short stored values can otherwise
+        // corrupt JSON keys or a handle and make get_sitemap_item impossible to call.
+        fun redact(node: JsonElement): JsonElement = when (node) {
+            is JsonObject -> JsonObject(node.mapValues { (key, value) ->
+                if (key == "id" && value is JsonPrimitive && value.isString &&
+                    value.content.matches(Regex("sm-[0-9a-f]{64}"))) value else redact(value)
+            })
+            is JsonArray -> JsonArray(node.map(::redact))
+            is JsonPrimitive -> if (node.isString) JsonPrimitive(active.redact(node.content)) else node
+        }
+        return Json.encodeToString(JsonElement.serializer(), redact(Json.parseToJsonElement(text)))
     }
 }
 
@@ -219,18 +236,22 @@ internal fun formatToolActivityLine(at: LocalTime, passed: Boolean, toolName: St
 internal fun toolResult(toolName: String, input: JsonElement? = null, block: () -> CallToolResult): CallToolResult {
     val active = ToolResultRedaction.store
     val startEpoch = active?.clearEpoch()
+    var scopeDenied = false
     val result = try {
         block()
     } catch (e: Exception) {
+        scopeDenied = e is net.portswigger.mcp.security.OutOfScopeException
         CallToolResult(
-            content = listOf(TextContent("Error: ${e.message}")),
+            content = listOf(TextContent(if (scopeDenied)
+                "{\"code\":\"OUT_OF_SCOPE\"}" else "Error: ${e.message}")),
             isError = true
         )
     }
     val redacted = if (active != null && toolName != "clear_session_vars" && active.clearEpoch() != startEpoch) {
         CallToolResult(content = listOf(TextContent("Session variables changed during this tool call.")), isError = true)
     } else {
-        ToolResultRedaction.apply(result, active)
+        // Fixed protocol codes contain no request data and must survive short-value redaction.
+        if (scopeDenied) result else ToolResultRedaction.apply(result, active, toolName == "list_sitemap" || toolName == "get_sitemap_item")
     }
     val safeInput = if (active != null && toolName != "clear_session_vars" && active.clearEpoch() != startEpoch) null else input
     ToolActivity.record(toolName, redacted, safeInput)

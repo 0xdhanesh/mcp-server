@@ -23,6 +23,7 @@ import net.portswigger.mcp.security.DataAccessType
 import net.portswigger.mcp.security.HttpRequestSecurity
 import net.portswigger.mcp.security.filterConfigCredentials
 import net.portswigger.mcp.security.VariableStore
+import net.portswigger.mcp.security.TargetScopeSecurity
 import java.awt.KeyboardFocusManager
 import java.util.regex.Pattern
 import javax.swing.JTextArea
@@ -118,6 +119,8 @@ fun Server.registerTools(
     ToolResultRedaction.store = variableStore
     variableStore.onValueStored = { ToolActivity.scrubWith(variableStore) }
     registerSessionTools(api, config, variableStore)
+    registerScopeTools(api, config)
+    registerSiteMapTools(api, config, variableStore)
 
     mcpTool<SendHttp1Request>(
         "Issues an HTTP/1.1 request and returns the response. By default, never calls the saved token endpoint. " +
@@ -129,6 +132,9 @@ fun Server.registerTools(
         require(!Regex("\\{\\{[A-Za-z_][A-Za-z0-9_]*}}").containsMatchIn(content)) {
             "Use send_with_vars with an identity for {{name}} placeholders."
         }
+        val fixedContent = normalizeHttpContent(content)
+        val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
+        TargetScopeSecurity.check(request, config)
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(targetHostname, targetPort, config, content, api)
         }
@@ -139,9 +145,6 @@ fun Server.registerTools(
 
         api.logging().logToOutput("MCP HTTP/1.1 request: $targetHostname:$targetPort")
 
-        val fixedContent = normalizeHttpContent(content)
-
-        val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         val outcome = sendMcpRequestWithAutoAuth(api, config, variableStore, request,
             allowTokenRequest = allowTokenRequest)
         val raw = outcome.exchange?.toString() ?: "<no response>"
@@ -176,6 +179,10 @@ fun Server.registerTools(
             "Use send_with_vars with an identity for {{name}} placeholders."
         }
 
+        val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
+        val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
+        TargetScopeSecurity.check(request, config)
+
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(targetHostname, targetPort, config, http2RequestDisplay, api)
         }
@@ -186,9 +193,6 @@ fun Server.registerTools(
 
         api.logging().logToOutput("MCP HTTP/2 request: $targetHostname:$targetPort")
 
-        val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
-
-        val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         val outcome = sendMcpRequestWithAutoAuth(api, config, variableStore, request, HttpMode.HTTP_2,
             allowTokenRequest = allowTokenRequest)
         val raw = outcome.exchange?.toString() ?: "<no response>"
@@ -696,6 +700,7 @@ fun Server.registerTools(
         }
 
         val request = selected.first
+        TargetScopeSecurity.check(request, config)
         val service = request.httpService()
         val allowedToSend = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(service.host(), service.port(), config, request.toString(), api)
@@ -713,10 +718,9 @@ fun Server.registerTools(
     }
 
     mcpTool<SendRepeaterRequest>(
-        "Clicks Send in the named Repeater tab and returns the response shown in that tab's response pane. " +
-            "The request leaves from Repeater. The Burp tool and Repeater tab that are already open stay as they are, so manual testing can continue. " +
-            "Leave issueFrom unset so the response appears in the tab. " +
-            "issueFrom http is only a fallback when Repeater Send cannot be clicked, and that fallback does not fill the response pane. " +
+        "Sends the named Repeater tab's request. With scope enforcement ON, uses the checked stored destination via HTTP API; the Repeater response pane is not updated. " +
+            "With enforcement OFF, clicks Send in Repeater and returns that pane's response, preserving the current UI view. " +
+            "In that mode, leave issueFrom unset for UI sending; issueFrom http allows API fallback if Send cannot be clicked. " +
             "responseEndMarker is the literal word or characters that mark the end of the server response. " +
             "Set truncateAtEndMarker to keep only the response through that marker. " +
             "notes is written to the Repeater tab Notes field."
@@ -785,11 +789,6 @@ fun Server.registerTools(
             "Other extensions can answer X-Burp-Mcp-Discover: tools with a JSON body that contains a tools array. " +
             "Pass header and command to probe one extension instead of the built-in probes."
     ) {
-        val allowed = runBlocking {
-            HttpRequestSecurity.checkHttpRequestPermission("127.0.0.1", 1, config, "extension tool probe", api)
-        }
-        if (!allowed) return@mcpTool "Extension probe denied by Burp Suite"
-
         val names = loadedExtensionNames(suiteFrameOf(api))
         val probes = if (!header.isNullOrBlank() && !command.isNullOrBlank()) {
             listOf(ExtensionCommand(header, header, command))
@@ -814,7 +813,8 @@ fun Server.registerTools(
                         body.orEmpty(),
                         targetHostname ?: "127.0.0.1",
                         targetPort ?: 1,
-                        usesHttps == true
+                        usesHttps == true,
+                        config
                     )
                 )
                 appendLine()
@@ -831,11 +831,7 @@ fun Server.registerTools(
         val hostname = targetHostname ?: "127.0.0.1"
         val port = targetPort ?: 1
         val https = usesHttps == true
-        val allowed = runBlocking {
-            HttpRequestSecurity.checkHttpRequestPermission(hostname, port, config, "$header: $command\n${body.orEmpty()}", api)
-        }
-        if (!allowed) return@mcpTool "Extension command denied by Burp Suite"
-        probeExtension(api, header, command, body.orEmpty(), hostname, port, https)
+        probeExtension(api, header, command, body.orEmpty(), hostname, port, https, config)
     }
 }
 

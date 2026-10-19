@@ -63,6 +63,12 @@ class ServerConfigurationPanel(
         add(httpRequestApprovalCheckBox)
         add(createVerticalStrut(Design.Spacing.MD))
 
+        add(createCheckBoxWithSubtitle(
+            "Enforce Burp Target scope", "Blocks out-of-scope MCP sends, including token requests, even when HTTP approval is off.",
+            config.enforceBurpTargetScope
+        ) { config.enforceBurpTargetScope = it })
+        add(createVerticalStrut(Design.Spacing.MD))
+
         val dataAccessApprovalCheckBox = createDataAccessApprovalCheckBox()
         add(dataAccessApprovalCheckBox)
         add(createVerticalStrut(Design.Spacing.SM))

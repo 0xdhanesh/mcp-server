@@ -51,6 +51,7 @@ class SessionToolsTest {
         val http = mockk<Http>()
         val exchange = mockk<HttpRequestResponse>()
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.requireHttpRequestApproval } returns false
         every { api.http() } returns http
         every { http.sendRequest(any<HttpRequest>()) } returns exchange
@@ -141,6 +142,7 @@ class SessionToolsTest {
         val response = mockk<HttpResponse>()
         val exchange = mockk<HttpRequestResponse>()
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.requireHttpRequestApproval } returns false
         every { api.http() } returns http
         every { response.statusCode() } returns 200
@@ -254,6 +256,7 @@ class SessionToolsTest {
         every { exchange.response() } returns response
         every { http.sendRequest(original) } returns exchange
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.requireDataAccessApproval } returns false
         every { config.requireHttpRequestApproval } returns false
 
@@ -274,6 +277,7 @@ class SessionToolsTest {
         val http = mockk<Http>(relaxed = true)
         every { api.http() } returns http
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         assertThrows(IllegalArgumentException::class.java) {
             executeAcquireSessionVar(AcquireSessionVar("session", "user", jsonPath = "$.access_token"), api, config, store)
         }
@@ -296,6 +300,7 @@ class SessionToolsTest {
         val http = mockk<Http>(relaxed = true)
         every { api.http() } returns http
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.requireDataAccessApproval } returns false
         every { config.requireHttpRequestApproval } returns false
         mockkStatic(HttpService::class)
@@ -324,6 +329,7 @@ class SessionToolsTest {
         every { api.http() } returns http
         every { api.organizer() } returns organizer
         val config = mockk<McpConfig>()
+        every { config.enforceBurpTargetScope } returns false // Legacy behavior; scope-on coverage is separate.
         every { config.requireDataAccessApproval } returns false
         every { config.requireHttpRequestApproval } returns false
 

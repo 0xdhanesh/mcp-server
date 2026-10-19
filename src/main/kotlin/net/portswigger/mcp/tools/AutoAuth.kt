@@ -8,6 +8,8 @@ import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.config.readiness
 import net.portswigger.mcp.security.RequestTemplate
 import net.portswigger.mcp.security.VariableStore
+import net.portswigger.mcp.security.TargetScopeSecurity
+import net.portswigger.mcp.security.OutOfScopeException
 
 internal data class AutoAuthOutcome(val exchange: HttpRequestResponse?, val note: String = "")
 
@@ -17,8 +19,10 @@ internal fun sendMcpRequestWithAutoAuth(
     request: HttpRequest, mode: HttpMode? = null, identity: String? = null,
     initialExchange: HttpRequestResponse? = null, allowTokenRequest: Boolean = false
 ): AutoAuthOutcome {
-    fun send(outgoing: HttpRequest): HttpRequestResponse? =
-        if (mode == null) api.http().sendRequest(outgoing) else api.http().sendRequest(outgoing, mode)
+    fun send(outgoing: HttpRequest): HttpRequestResponse? {
+        TargetScopeSecurity.check(outgoing, config)
+        return if (mode == null) api.http().sendRequest(outgoing) else api.http().sendRequest(outgoing, mode)
+    }
 
     val first = initialExchange ?: send(request)
     if (runCatching { first?.response()?.statusCode()?.toInt() }.getOrNull() != 401) return AutoAuthOutcome(first)
@@ -53,7 +57,14 @@ internal fun sendMcpRequestWithAutoAuth(
     }.getOrDefault(false)
     if (sameEndpoint) return AutoAuthOutcome(first, "MCP automatic auth: token endpoint is not retried.\n")
 
-    val acquired = runCatching { executeAcquireConfiguredSessionVar(role, api, config, store) }.isSuccess
+    val acquired = try {
+        executeAcquireConfiguredSessionVar(role, api, config, store)
+        true
+    } catch (error: OutOfScopeException) {
+        throw error
+    } catch (_: Exception) {
+        false
+    }
     if (!acquired) {
         return AutoAuthOutcome(first, "MCP automatic auth: token acquisition failed; returned original 401.\n")
     }

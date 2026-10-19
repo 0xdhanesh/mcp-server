@@ -16,6 +16,8 @@ Burp Suite MCP Server lets AI assistants work with Burp Suite during web applica
 
 - Connect Burp Suite to MCP clients, including Claude Desktop.
 - Send HTTP requests and inspect server responses.
+- Check and manage Burp Target scope; enforce scope on MCP sends by default.
+- Query Burp's Site Map using prefix filters, paginated summaries, and redacted request/response lookups.
 - Open requests in Repeater, resend them, and keep notes beside the results.
 - Send requests to Intruder for further testing.
 - Review and search Proxy traffic, WebSocket messages, captured requests, Logger entries, and Organizer items.
@@ -28,6 +30,8 @@ Burp Suite MCP Server lets AI assistants work with Burp Suite during web applica
 
 See [tools.md](tools.md) for the full feature list.
 See [USAGE.md](USAGE.md) for step-by-step curl, raw HTTP, and HTTP fields setup.
+
+**Scope enforcement is ON by default.** Add the authorized application and token endpoints to Burp Target scope before sending. Out-of-scope MCP sends return `OUT_OF_SCOPE`, even when HTTP approval is disabled or the host is auto-approved. The **MCP Settings → Enforce Burp Target scope** toggle restores the previous behavior when switched off. See [tools.md](tools.md#target-scope-and-site-map-mvp) for scope controls, site-map permissions, and pagination.
 
 ## MCP views and activity log
 

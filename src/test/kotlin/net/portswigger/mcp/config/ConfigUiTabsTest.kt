@@ -3,6 +3,8 @@ package net.portswigger.mcp.config
 import burp.api.montoya.logging.Logging
 import burp.api.montoya.persistence.PersistedObject
 import io.mockk.mockk
+import io.mockk.every
+import io.mockk.verify
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import net.portswigger.mcp.tools.ToolActivity
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JScrollPane
 import javax.swing.JSeparator
@@ -20,6 +23,21 @@ import javax.swing.JTabbedPane
 import javax.swing.SwingUtilities
 
 class ConfigUiTabsTest {
+    @Test
+    fun `scope enforcement checkbox is enabled by default and persists changes`() {
+        val storage = mockk<PersistedObject>(relaxed = true)
+        every { storage.getBoolean("enforceBurpTargetScope") } returns null
+        SwingUtilities.invokeAndWait {
+            val ui = ConfigUi(McpConfig(storage, mockk<Logging>(relaxed = true)))
+            try {
+                val toggle = walk(ui.component).filterIsInstance<JCheckBox>().single { it.text == "Enforce Burp Target scope" }
+                assertTrue(toggle.isSelected)
+                toggle.doClick()
+                verify { storage.setBoolean("enforceBurpTargetScope", false) }
+            } finally { ui.cleanup() }
+        }
+    }
+
     @Test
     fun `MCP sections are separate scrollable tabs without installation controls`() {
         SwingUtilities.invokeAndWait {

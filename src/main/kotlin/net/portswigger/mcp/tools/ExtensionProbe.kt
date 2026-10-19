@@ -3,6 +3,10 @@ package net.portswigger.mcp.tools
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.http.HttpService
 import burp.api.montoya.http.message.requests.HttpRequest
+import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.security.TargetScopeSecurity
+import net.portswigger.mcp.security.HttpRequestSecurity
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,7 +42,8 @@ internal fun probeExtension(
     body: String = "",
     hostname: String = "127.0.0.1",
     port: Int = 1,
-    usesHttps: Boolean = false
+    usesHttps: Boolean = false,
+    config: McpConfig
 ): String {
     val content = buildString {
         append("GET /burp-mcp-extension-probe HTTP/1.1\r\n")
@@ -50,6 +55,16 @@ internal fun probeExtension(
     }
     val service = HttpService.httpService(hostname, port, usesHttps)
     val request = HttpRequest.httpRequest(service, normalizeHttpContent(content))
+    // Only the fixed local extension-command transport is exempt. Custom targets are real sends.
+    val localProbe = hostname == "127.0.0.1" && port == 1 && !usesHttps
+    if (!localProbe) {
+        TargetScopeSecurity.check(request, config)
+    }
+    val allowed = runBlocking {
+        HttpRequestSecurity.checkHttpRequestPermission(hostname, port, config, content, api)
+    }
+    if (!allowed) return "Extension probe denied by Burp Suite"
+    if (!localProbe) TargetScopeSecurity.check(request, config)
     val raw = try {
         api.http().sendRequest(request)?.toString()
     } catch (e: Exception) {
