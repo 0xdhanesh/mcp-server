@@ -4,11 +4,13 @@ This guide covers the **Token Request** section in Burp's **MCP** tab. It saves 
 
 ## 1. Load the extension
 
-Load `build/libs/burp-mcp-all-v2.0.5.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
+Load `build/libs/burp-mcp-all-v2.0.6.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
 
 ## 2. Enter the token request
 
 Choose one input mode. These examples call `http://127.0.0.1:5000/token` and expect a JSON response containing `access_token`. Replace the address and parameter names with those used by your application. Keep credential values as placeholders in the saved request.
+
+![Token Request tab example](assets/token-request-example.png)
 
 ### Curl
 
@@ -34,6 +36,8 @@ Content-Length: 0
 
 {"username":"{{username}}","password":"{{password}}"}
 ```
+
+![Raw HTTP input example](assets/raw-http-example.png)
 
 Use **HTTPS** for a TLS endpoint. The extension recalculates an existing `Content-Length` when it expands the placeholders, so the template's `0` is safe to leave in place.
 
