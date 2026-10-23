@@ -37,7 +37,7 @@ Compare `gradle.properties`, `ExtensionVersion.kt`, `BappManifest.bmf`, README, 
 
 ### 2. Complete tool-catalog contract test
 
-Assert the exact registered tool set and schemas: currently 52 documented tools, comprising 48 Community tools and four Professional-only tools. The existing integration test checks only a small subset. This would also detect that `COMPARE.md` still describes 43 tools.
+Assert the exact registered tool set and schemas: currently 52 documented tools, comprising 48 Community tools and four Professional-only tools. The existing integration test checks only a small subset. This would prevent future drift between registration, `tools.md`, `COMPARE.md`, and the comparison SVG.
 
 ### 3. Ktor security integration tests
 
@@ -70,7 +70,7 @@ Real Burp UI behavior, Professional Scanner/Collaborator traffic, HTTP/2 against
 
 ## Features usable now
 
-Use `build/libs/burp-mcp-all-v3.0.0.jar` for the next manual test. The full build passed with 177 tests after disabling JUnit temp cleanup for this Windows run. Manual verification of this phase is pending.
+The loaded `build/libs/burp-mcp-all-v3.0.0.jar` was checked live in Burp Community Edition on 23 October 2026. Results for all 52 cataloged tools are recorded in `tools.md`; four Professional tools were unavailable in Community. The full build passed with 177 tests after disabling JUnit temp cleanup for this Windows run.
 
 After loading the JAR under **Burp > Extensions**, the MCP server is enabled by default at `127.0.0.1:9876`. Direct SSE clients can connect to that address; stdio-only clients use the bundled proxy. Claude Desktop installation is supported through the extension.
 
@@ -91,7 +91,7 @@ HTTP sends and sensitive-history reads require approval by default, while config
 
 ## Current limitations and cautions
 
-- The live sanity results in `tools.md` were recorded against version `1.3.8`, so they are not full manual certification of the current 3.0.0 build.
+- The v3.0.0 live results in `tools.md` cover all 48 Community tools, with partial behavior or missing prerequisites identified per tool.
 - Version metadata was synchronized to `3.0.0`; the JAR contains the extension entry point and embedded proxy.
-- `COMPARE.md` describes 43 tools, while the current tool catalog contains 52.
-- The 177-test run and versioned JAR build passed offline on this Windows workspace; Burp UI verification remains pending.
+- `COMPARE.md` and its SVG now describe the same 52 tools as the current catalog.
+- The 177-test run and versioned JAR build passed offline on this Windows workspace. Live checks found a Repeater Notes panel update limitation and extension discovery output issues; HTTP/2 response and Professional-only checks remain pending.
