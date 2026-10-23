@@ -5,7 +5,7 @@ package net.portswigger.mcp
  * versions so the loaded extension can be identified in Burp.
  */
 object ExtensionVersion {
-    const val VERSION = "2.0.6"
+    const val VERSION = "3.0.0"
     const val TAB_TITLE = "MCP v$VERSION"
     const val NAME = "Burp MCP Server v$VERSION"
 }

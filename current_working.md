@@ -1,6 +1,6 @@
 # Current Testing and Feature Assessment
 
-_Assessment date: 22 October 2026_
+_Assessment date: 22 October 2026; release notes updated 23 October 2026_
 
 ## Current assessment
 
@@ -33,7 +33,7 @@ The main test sources are `src/test/kotlin/net/portswigger/mcp/tools/ToolsKtTest
 
 ### 1. Release consistency test
 
-Compare `gradle.properties`, `ExtensionVersion.kt`, `BappManifest.bmf`, README, USAGE, and the generated JAR name. This would currently fail: Gradle is `2.0.7`, while the remaining release metadata says `2.0.6`.
+Compare `gradle.properties`, `ExtensionVersion.kt`, `BappManifest.bmf`, README, USAGE, and the generated JAR name. These were synchronized to `3.0.0` in the current development phase; verify the generated JAR after the full build.
 
 ### 2. Complete tool-catalog contract test
 
@@ -70,7 +70,7 @@ Real Burp UI behavior, Professional Scanner/Collaborator traffic, HTTP/2 against
 
 ## Features usable now
 
-Use `build/libs/burp-mcp-all-v2.0.6.jar` for current manual testing. The `2.0.7` artifact should not be treated as release-ready until the version metadata is synchronized and the full build passes.
+Use `build/libs/burp-mcp-all-v3.0.0.jar` for the next manual test. The full build passed with 177 tests after disabling JUnit temp cleanup for this Windows run. Manual verification of this phase is pending.
 
 After loading the JAR under **Burp > Extensions**, the MCP server is enabled by default at `127.0.0.1:9876`. Direct SSE clients can connect to that address; stdio-only clients use the bundled proxy. Claude Desktop installation is supported through the extension.
 
@@ -79,7 +79,7 @@ Useful workflows now include:
 - Review Proxy, Logger, WebSocket, Organizer, and captured-request traffic.
 - Send HTTP/1 or HTTP/2 requests and inspect responses.
 - Move requests into Repeater or Intruder.
-- Send and annotate Repeater requests while preserving the user's current view.
+- Send and annotate requests in the MCP Repeater group while preserving the user's current view. Foreground sends use the Burp HTTP API and return their response to MCP.
 - Add Proxy notes/highlights and Logger comments.
 - Use memory-only, role-bound credentials and tokens.
 - Replay the same request as `user`, `admin`, or other roles with `authz_replay`.
@@ -91,7 +91,7 @@ HTTP sends and sensitive-history reads require approval by default, while config
 
 ## Current limitations and cautions
 
-- The live sanity results in `tools.md` were recorded against version `1.3.8`, so they are not full manual certification of the current 2.x build.
-- Version metadata is inconsistent: `gradle.properties` says `2.0.7`, while `ExtensionVersion.kt`, `BappManifest.bmf`, README, and USAGE say `2.0.6`.
+- The live sanity results in `tools.md` were recorded against version `1.3.8`, so they are not full manual certification of the current 3.0.0 build.
+- Version metadata was synchronized to `3.0.0`; the JAR contains the extension entry point and embedded proxy.
 - `COMPARE.md` describes 43 tools, while the current tool catalog contains 52.
-- A clean full test and packaging run still needs to be reproduced in an environment with working Maven repository access.
+- The 177-test run and versioned JAR build passed offline on this Windows workspace; Burp UI verification remains pending.

@@ -154,24 +154,53 @@ class TokenRequestProfileTest {
     }
 
     @Test
-    fun `MCP tab saves HTTP request fields and reloads them`() = withAuthService {
+    fun `MCP tab offers curl and raw HTTP with examples and reloads the saved request`() = withAuthService {
         SwingUtilities.invokeAndWait {
             val panel = TokenRequestPanel(config, store)
-            (field(panel, "Input mode") as JComboBox<*>).selectedIndex = 1
-            (field(panel, "Request URL (URI)") as JTextField).text = "https://auth.target/token"
-            ((field(panel, "Headers (one per line)") as JScrollPane).viewport.view as JTextArea).text =
-                "Content-Type: application/json"
-            ((field(panel, "Body parameters (JSON, form, or {{body}})") as JScrollPane).viewport.view as JTextArea).text =
+            val mode = field(panel, "Input mode: CURL / raw HTTP") as JComboBox<*>
+            assertEquals(listOf("CURL", "HTTP"), (0 until mode.itemCount).map(mode::getItemAt))
+            val editor = (field(panel, "Curl command or raw HTTP/1.x request") as JScrollPane).viewport.view as JTextArea
+            assertEquals("", editor.text)
+            assertTrue(editor.accessibleContext.accessibleDescription.startsWith("curl -X POST"))
+            mode.selectedIndex = 1
+            assertTrue(editor.accessibleContext.accessibleDescription.startsWith("POST /token HTTP/1.1"))
+            editor.text = "POST /token HTTP/1.1\r\nHost: auth.target\r\nContent-Type: application/json\r\n\r\n" +
                 """{"username":"{{username}}","password":"{{password}}"}"""
+            components(panel).filterIsInstance<javax.swing.JCheckBox>()
+                .first { it.text == "Use HTTPS for raw HTTP requests" }.isSelected = true
             (field(panel, "Default role for automatic 401 retry (optional with one ready role)") as JTextField).text = "user"
             components(panel).filterIsInstance<JButton>().first { it.text == "Save request" }.doClick()
-            assertEquals(TokenRequestMode.HTTP_FIELDS, config.tokenRequestProfile()?.mode)
+            assertEquals(TokenRequestMode.TEMPLATE, config.tokenRequestProfile()?.mode)
+            assertEquals(RawHttpScheme.HTTPS, config.tokenRequestProfile()?.rawHttpScheme)
             assertEquals("user", config.tokenRequestProfile()?.defaultIdentity)
             val reloadedPanel = TokenRequestPanel(config, store)
-            assertEquals("https://auth.target/token", (field(reloadedPanel, "Request URL (URI)") as JTextField).text)
+            assertEquals(1, (field(reloadedPanel, "Input mode: CURL / raw HTTP") as JComboBox<*>).selectedIndex)
+            assertEquals(editor.text, ((field(reloadedPanel, "Curl command or raw HTTP/1.x request") as JScrollPane).viewport.view as JTextArea).text)
             assertEquals("user", (field(reloadedPanel, "Default role for automatic 401 retry (optional with one ready role)") as JTextField).text)
+            (field(reloadedPanel, "Input mode: CURL / raw HTTP") as JComboBox<*>).selectedIndex = 0
+            components(reloadedPanel).filterIsInstance<JButton>().first { it.text == "Save request" }.doClick()
+            assertEquals(TokenRequestMode.TEMPLATE, config.tokenRequestProfile()?.mode)
+            assertEquals(editor.text, config.tokenRequestProfile()?.template)
+            assertTrue(components(reloadedPanel).filterIsInstance<JLabel>()
+                .any { it.text == "Request format does not match the selected input mode." })
         }
         assertNotNull(config.tokenRequestProfile())
+    }
+
+    @Test
+    fun `MCP tab loads legacy HTTP fields into curl editor`() = withAuthService {
+        config.saveTokenRequestProfile(TokenRequestProfile(
+            mode = TokenRequestMode.HTTP_FIELDS,
+            url = "https://auth.target/token",
+            body = "username={{username}}"
+        ), store)
+        SwingUtilities.invokeAndWait {
+            val panel = TokenRequestPanel(config, store)
+            assertEquals(0, (field(panel, "Input mode: CURL / raw HTTP") as JComboBox<*>).selectedIndex)
+            val editor = (field(panel, "Curl command or raw HTTP/1.x request") as JScrollPane).viewport.view as JTextArea
+            assertTrue(editor.text.contains("https://auth.target/token"))
+            assertTrue(editor.text.contains("{{username}}"))
+        }
     }
 
     @Test

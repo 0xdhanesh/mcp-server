@@ -11,7 +11,6 @@ import net.portswigger.mcp.config.readiness
 import net.portswigger.mcp.security.VariableStore
 import net.portswigger.mcp.security.RequestTemplate
 import java.awt.BorderLayout
-import java.awt.CardLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
 import javax.swing.BorderFactory
@@ -31,13 +30,9 @@ import javax.swing.event.DocumentListener
 
 /** Burp-persisted token request template. Secret values are supplied from VariableStore at send time. */
 class TokenRequestPanel(private val config: McpConfig, private val store: VariableStore) : JPanel() {
-    private val mode = JComboBox(arrayOf("Curl or raw HTTP", "HTTP fields"))
-    private val template = JTextArea(7, 36)
-    private val rawHttpScheme = JComboBox(arrayOf("HTTPS", "HTTP"))
-    private val method = JComboBox(arrayOf("POST", "GET", "PUT", "PATCH", "DELETE"))
-    private val url = JTextField()
-    private val headers = JTextArea(4, 36)
-    private val body = JTextArea(5, 36)
+    private val mode = JComboBox(arrayOf("CURL", "HTTP"))
+    private val template = PlaceholderTextArea(9, 36)
+    private val useHttps = javax.swing.JCheckBox("Use HTTPS for raw HTTP requests")
     private val variableName = JTextField("session")
     private val targetHost = JTextField()
     private val defaultIdentity = JTextField()
@@ -48,7 +43,6 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     private val inputHost = JTextField()
     private val inputValue = PlaceholderPasswordField("username / password will be masked as you type")
     private val memoryValuesHint = JLabel()
-    private val cards = JPanel(VisibleCardLayout())
     private val status = JLabel(" ")
     private val readinessStatus = JLabel(" ")
     private val readinessPanel = JPanel()
@@ -70,27 +64,13 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             alignmentX = LEFT_ALIGNMENT
         })
         add(Box.createVerticalStrut(Design.Spacing.MD))
-        add(field("Input mode", mode))
-
-        cards.isOpaque = false
-        cards.add(JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            add(field("Curl command or raw HTTP/1.x request", textArea(template, 170)))
-            add(field("Raw HTTP transport (curl uses its URL)", rawHttpScheme))
-        }, "template")
-        cards.add(JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            add(field("Method", method))
-            add(field("Request URL (URI)", url))
-            add(field("Headers (one per line)", textArea(headers, 100)))
-            add(field("Body parameters (JSON, form, or {{body}})", textArea(body, 130)))
-        }, "fields")
-        cards.alignmentX = LEFT_ALIGNMENT
-        add(cards)
+        add(field("Input mode: CURL / raw HTTP", mode))
+        add(field("Curl command or raw HTTP/1.x request", textArea(template, 205, 620)))
+        useHttps.isOpaque = false
+        useHttps.alignmentX = LEFT_ALIGNMENT
+        add(useHttps)
         mode.addActionListener { showMode() }
-        listOf(template, url, headers, body).forEach { it.document.addDocumentListener(onChange(::updateHandleHints)) }
+        template.document.addDocumentListener(onChange(::updateHandleHints))
 
         add(field("Stored variable name", variableName))
         add(field("Token use host (blank = request host)", targetHost))
@@ -165,24 +145,26 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         add(component, BorderLayout.CENTER)
     }
 
-    private fun textArea(area: JTextArea, height: Int): JScrollPane {
+    private fun textArea(area: JTextArea, height: Int, width: Int = 320): JScrollPane {
         area.lineWrap = false
         area.font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
         return JScrollPane(area).apply {
-            preferredSize = Dimension(320, height)
+            preferredSize = Dimension(width, height)
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
         }
     }
 
     private fun showMode() {
-        (cards.layout as CardLayout).show(cards, if (mode.selectedIndex == 0) "template" else "fields")
-        cards.revalidate()
+        template.placeholder = if (mode.selectedIndex == 0) CURL_PLACEHOLDER else HTTP_PLACEHOLDER
+        template.toolTipText = template.placeholder
+        useHttps.isVisible = mode.selectedIndex == 1
+        revalidate()
         updateHandleHints()
     }
 
     /** Mirrors the {{name}} handles in the active request editor into the memory-only input hints. */
     private fun updateHandleHints() {
-        val source = if (mode.selectedIndex == 0) template.text else listOf(url.text, headers.text, body.text).joinToString("\n")
+        val source = template.text
         val names = HANDLE.findAll(source).map { it.groupValues[1] }.distinct().toList()
             .ifEmpty { listOf("username", "password") }
         val handles = names.map { "{{$it}}" }
@@ -198,20 +180,22 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         override fun changedUpdate(e: DocumentEvent) = action()
     }
 
-    private fun current(): TokenRequestProfile = TokenRequestProfile(
-        mode = if (mode.selectedIndex == 0) TokenRequestMode.TEMPLATE else TokenRequestMode.HTTP_FIELDS,
-        template = if (mode.selectedIndex == 0) template.text else "",
-        rawHttpScheme = if (rawHttpScheme.selectedIndex == 0) RawHttpScheme.HTTPS else RawHttpScheme.HTTP,
-        method = method.selectedItem.toString(),
-        url = if (mode.selectedIndex == 1) url.text else "",
-        headers = if (mode.selectedIndex == 1) headers.text else "",
-        body = if (mode.selectedIndex == 1) body.text else "",
-        variableName = variableName.text.trim(),
-        targetHost = targetHost.text.trim(),
-        defaultIdentity = defaultIdentity.text.trim(),
-        selectorMode = if (selectorMode.selectedIndex == 0) TokenSelectorMode.JSON_PATH else TokenSelectorMode.REGEX,
-        selector = selector.text.trim()
-    )
+    private fun current(): TokenRequestProfile {
+        val isCurl = template.text.trimStart().startsWith("curl ", ignoreCase = true)
+        require(template.text.isBlank() || isCurl == (mode.selectedIndex == 0)) {
+            "Request format does not match the selected input mode."
+        }
+        return TokenRequestProfile(
+            mode = TokenRequestMode.TEMPLATE,
+            template = template.text,
+            rawHttpScheme = if (mode.selectedIndex == 1 && !useHttps.isSelected) RawHttpScheme.HTTP else RawHttpScheme.HTTPS,
+            variableName = variableName.text.trim(),
+            targetHost = targetHost.text.trim(),
+            defaultIdentity = defaultIdentity.text.trim(),
+            selectorMode = if (selectorMode.selectedIndex == 0) TokenSelectorMode.JSON_PATH else TokenSelectorMode.REGEX,
+            selector = selector.text.trim()
+        )
+    }
 
     private fun save() {
         try {
@@ -226,6 +210,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
                 "JSON values must use variable handles before saving." -> error.message!!
                 "Body parameter values must use variable handles before saving." -> error.message!!
                 "Credential headers must use stored variable handles only." -> error.message!!
+                "Request format does not match the selected input mode." -> error.message!!
                 else -> "Could not save. Check syntax and replace credential values with {{name}} handles."
             }
         }
@@ -255,11 +240,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         config.clearTokenRequestProfile()
         mode.selectedIndex = 0
         template.text = ""
-        rawHttpScheme.selectedIndex = 0
-        method.selectedItem = "POST"
-        url.text = ""
-        headers.text = ""
-        body.text = ""
+        useHttps.isSelected = false
         variableName.text = "session"
         targetHost.text = ""
         defaultIdentity.text = ""
@@ -331,13 +312,10 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     private fun handles(names: Collection<String>): String = names.joinToString(", ") { "{{$it}}" }
 
     private fun load(profile: TokenRequestProfile) {
-        mode.selectedIndex = if (profile.mode == TokenRequestMode.TEMPLATE) 0 else 1
-        template.text = profile.template
-        rawHttpScheme.selectedIndex = if (profile.rawHttpScheme == RawHttpScheme.HTTPS) 0 else 1
-        method.selectedItem = profile.method
-        url.text = profile.url
-        headers.text = profile.headers
-        body.text = profile.body
+        val request = if (profile.mode == TokenRequestMode.HTTP_FIELDS) profile.requestTemplate() else profile.template
+        mode.selectedIndex = if (request.trimStart().startsWith("curl ", ignoreCase = true)) 0 else 1
+        template.text = request
+        useHttps.isSelected = profile.rawHttpScheme == RawHttpScheme.HTTPS
         variableName.text = profile.variableName
         targetHost.text = profile.targetHost
         defaultIdentity.text = profile.defaultIdentity
@@ -347,18 +325,16 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     }
 }
 
-/** CardLayout that sizes to the visible card instead of the largest one. */
-private class VisibleCardLayout : CardLayout() {
-    override fun preferredLayoutSize(parent: java.awt.Container): Dimension = visibleSize(parent) { it.preferredSize }
-    override fun minimumLayoutSize(parent: java.awt.Container): Dimension = visibleSize(parent) { it.minimumSize }
+private val CURL_PLACEHOLDER = """curl -X POST http://localhost/token \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    -d 'grant_type=client_credentials&client_id={{cid}}&client_password={{cpass}}'"""
 
-    private fun visibleSize(parent: java.awt.Container, size: (java.awt.Component) -> Dimension): Dimension {
-        val insets = parent.insets
-        val card = parent.components.firstOrNull { it.isVisible } ?: return Dimension(insets.left + insets.right, insets.top + insets.bottom)
-        val d = size(card)
-        return Dimension(d.width + insets.left + insets.right, d.height + insets.top + insets.bottom)
-    }
-}
+private val HTTP_PLACEHOLDER = """POST /token HTTP/1.1
+Host: 127.0.0.1:5000
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 0
+
+grant_type=client_credentials&client_id={{cid}}&client_password={{cpass}}"""
 
 /** Paints [placeholder] in a muted color while the field is empty. */
 private fun paintPlaceholder(g: java.awt.Graphics, field: JTextField, placeholder: String) {
@@ -378,6 +354,34 @@ private fun paintPlaceholder(g: java.awt.Graphics, field: JTextField, placeholde
 }
 
 private val HANDLE = Regex("\\{\\{([A-Za-z_][A-Za-z0-9_]*)}}")
+
+private class PlaceholderTextArea(rows: Int, columns: Int) : JTextArea(rows, columns) {
+    var placeholder: String = ""
+        set(value) {
+            field = value
+            getAccessibleContext().accessibleDescription = value
+            repaint()
+        }
+
+    override fun paintComponent(g: java.awt.Graphics) {
+        super.paintComponent(g)
+        if (document.length > 0) return
+        val g2 = g.create() as java.awt.Graphics2D
+        try {
+            g2.color = Design.Colors.onSurfaceVariant
+            g2.font = font
+            val metrics = g2.fontMetrics
+            val x = insets.left
+            var y = insets.top + metrics.ascent
+            placeholder.lineSequence().forEach { line ->
+                g2.drawString(line, x, y)
+                y += metrics.height
+            }
+        } finally {
+            g2.dispose()
+        }
+    }
+}
 
 private class PlaceholderTextField(placeholder: String) : JTextField() {
     var placeholder: String = placeholder

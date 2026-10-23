@@ -34,6 +34,7 @@ internal fun openRepeaterTab(
     if (safeNotes != null) stored.notes = safeNotes
     stored.connectionId = stored.connectionId ?: RepeaterSession.connectionIdFor(name)
     RepeaterSession.save(stored)
+    val grouped = RepeaterGroups.tryGroup(frame, name)
 
     val notesWritten = if (safeNotes != null) {
         RepeaterUi.trySetNotes(frame, name, safeNotes, expectedRequest = request.toString())
@@ -43,6 +44,8 @@ internal fun openRepeaterTab(
 
     return buildString {
         appendLine("Opened Repeater tab '$name'.")
+        appendLine(if (grouped) "Placed it in the MCP Repeater group." else
+            "Could not place it in the MCP Repeater group; check the visible tab in Burp.")
         appendLine("Issue it with send_repeater_request so the model can read the response.")
         append("HTTP mode: ${httpMode.name}. Connection id: ${stored.connectionId}.")
         if (safeNotes != null) {
@@ -77,6 +80,7 @@ internal fun issueRepeaterTab(
         RepeaterUi.preservingView(opened) {
             api.repeater().sendToRepeater(tab.request, tab.name)
         }
+        RepeaterGroups.tryGroup(opened, tab.name)
     }
     if (httpModeName != null) tab.httpMode = parseHttpMode(httpModeName)
     if (notes != null) tab.notes = safeMetadata(notes)
@@ -119,6 +123,8 @@ internal fun issueRepeaterTab(
             }
             sendMiss = ui.detail
         }
+
+        is RepeaterUiSend.BurpInUse -> sendMiss = ui.detail
     }
 
     val visibleRequest = RepeaterUi.tryReadRequest(frame, tab.name)

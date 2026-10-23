@@ -4,7 +4,7 @@ This guide covers the **Token Request** section in Burp's **MCP** tab. It saves 
 
 ## 1. Load the extension
 
-Load `build/libs/burp-mcp-all-v2.0.6.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
+Load `build/libs/burp-mcp-all-v3.0.0.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
 
 ## 2. Enter the token request
 
@@ -14,7 +14,7 @@ Choose one input mode. These examples call `http://127.0.0.1:5000/token` and exp
 
 ### Curl
 
-Choose **Curl or raw HTTP** and paste:
+Choose **CURL** under **Input mode: CURL / raw HTTP** and paste:
 
 ```bash
 curl -X POST http://127.0.0.1:5000/token \
@@ -26,7 +26,7 @@ The curl URL selects HTTP or HTTPS. Multiline commands with backslash continuati
 
 ### Raw HTTP
 
-Choose **Curl or raw HTTP**, select **HTTP** in **Raw HTTP transport**, and paste:
+Choose **HTTP** under **Input mode: CURL / raw HTTP** and paste:
 
 ```http
 POST /token HTTP/1.1
@@ -39,20 +39,7 @@ Content-Length: 0
 
 ![Raw HTTP input example](assets/raw-http-example.png)
 
-Use **HTTPS** for a TLS endpoint. The extension recalculates an existing `Content-Length` when it expands the placeholders, so the template's `0` is safe to leave in place.
-
-### HTTP fields
-
-Choose **HTTP fields** and enter:
-
-| Field | Example |
-| --- | --- |
-| Method | `POST` |
-| Request URL (URI) | `http://127.0.0.1:5000/token` |
-| Headers | `Content-Type: application/json` |
-| Body parameters | `{"username":"{{username}}","password":"{{password}}"}` |
-
-If you omit `Content-Type`, the extension infers JSON or form encoding from the body.
+Select **Use HTTPS for raw HTTP requests** for a TLS endpoint. The extension recalculates an existing `Content-Length` when it expands the placeholders, so the template's `0` is safe to leave in place. Older saved HTTP-fields profiles load as CURL commands in the new editor.
 
 ## 3. Set the extraction and save
 
@@ -116,7 +103,7 @@ For a raw request with a relative path on a nonstandard HTTP port, set `"usesHtt
 | --- | --- |
 | **Could not save** or **JSON values must use variable handles** | Replace literal username, password, and other parameter values with `{{name}}` placeholders. Store the values in **Memory-only request values**. |
 | `$.access_token` entered but no token is extracted | Select **JSONPath**, not **Regex**, and check that the response has an `access_token` JSON key. |
-| Raw HTTP request to port 5000 fails to connect | Select **HTTP** in **Raw HTTP transport** when the endpoint is not using TLS. |
+| Raw HTTP request to port 5000 fails to connect | Choose **HTTP** as input mode and leave **Use HTTPS for raw HTTP requests** unchecked when the endpoint is not using TLS. |
 | An MCP HTTP request returns `TOKEN_MISSING` and no token request runs | This is the default. If a token request is allowed, pass `"allowTokenRequest":true`, click **Check 401 readiness** or call `get_session_auth_status`, and store any missing inputs in memory. Set a default role if several roles are ready. The API request host must match **Token use host**. |
 | An echoed path such as `/api/admin` appears as `/api/{{username}}` | A stored value matched part of the displayed path and was redacted. The original path was sent. Use `send_with_vars` when you actually want to send a `{{name}}` placeholder. |
 | Claude says `{{session}}` or `{{username}}` means credentials were unresolved | Tool output is redacted. A successful token acquisition means the configured request was expanded and the token response passed extraction. Check the selected role with `get_session_auth_status`; to prove a role-specific authorization issue, store separate low-privilege and admin accounts under distinct role aliases and test both. Never paste credentials into the MCP conversation. |

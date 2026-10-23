@@ -198,13 +198,13 @@ fun Server.registerTools(
         outcome.note + displayNote + presentResponse(raw, responseEndMarker, truncateAtEndMarker == true)
     }
 
-    mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found. The Burp tool and Repeater tab that are already open stay as they are.") {
+    mcpTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab in the MCP group with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2. The request is not sent until send_repeater_request. Optional notes are written to the Repeater tab Notes field when that field can be found. Other Burp and Repeater tabs remain available.") {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         openRepeaterTab(api, request, tabName, HttpMode.HTTP_1, notes)
     }
 
-    mcpTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter. The request is not sent until send_repeater_request. The Burp tool and Repeater tab that are already open stay as they are.") {
+    mcpTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab in the MCP group with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter. The request is not sent until send_repeater_request. Other Burp and Repeater tabs remain available.") {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         openRepeaterTab(api, request, tabName, HttpMode.HTTP_2, notes)
@@ -554,7 +554,7 @@ fun Server.registerTools(
 
     mcpTool<SendProxyHistoryToRepeater>(
         "Sends one proxy HTTP history item to a Repeater tab using Repeater.sendToRepeater. " +
-            "The Burp tool and Repeater tab that are already open stay as they are. " +
+            "The MCP group holds these tabs; other Burp and Repeater tabs remain available. " +
             "Pass historyId from get_proxy_http_history_summary. " +
             "useFinalRequest selects the request Burp actually sent after proxy match-and-replace. " +
             "Notes are copied from the history item unless notes is set or copyNotes is false. " +
@@ -663,11 +663,12 @@ fun Server.registerTools(
     }
 
     mcpTool<SendRecordedRequestToRepeater>(
-        "Opens a recorded HTTP request in a Repeater tab, clicks Repeater Send, and returns the fresh response. " +
+        "Opens a recorded HTTP request in the MCP Repeater group, sends it, and returns the fresh response. " +
             "For source proxy, requestId is the Proxy HTTP history ID. For source captured, requestId is a capture ID " +
             "from list_captured_http_requests; it is not Burp Logger's visible #. " +
             "Only requests captured since this extension loaded are available for source captured. " +
-            "If the Repeater Send control cannot be used, the tool reports that the request was not sent."
+            "When Burp is in active manual use, the Burp HTTP API sends the request without switching Repeater tabs; its response is returned to MCP but does not fill the Repeater response pane. " +
+            "If the Repeater Send control cannot be used for another reason, the tool reports that the request was not sent."
     ) {
         val normalizedSource = source.trim().lowercase()
         val selected = when (normalizedSource) {
@@ -713,8 +714,8 @@ fun Server.registerTools(
     }
 
     mcpTool<SendRepeaterRequest>(
-        "Clicks Send in the named Repeater tab and returns the response shown in that tab's response pane. " +
-            "The request leaves from Repeater. The Burp tool and Repeater tab that are already open stay as they are, so manual testing can continue. " +
+        "Clicks Send in the named MCP Repeater tab and returns its response. " +
+            "When Burp is in active manual use, the Burp HTTP API sends instead so other tabs stay available; that response is not shown in Repeater. " +
             "Leave issueFrom unset so the response appears in the tab. " +
             "issueFrom http is only a fallback when Repeater Send cannot be clicked, and that fallback does not fill the response pane. " +
             "responseEndMarker is the literal word or characters that mark the end of the server response. " +

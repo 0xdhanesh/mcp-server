@@ -22,15 +22,15 @@ This catalog lists the available tool groups. **Tool name to invoke** is the nam
 | --- | --- | --- | --- |
 | Send HTTP/1.1 request | `send_http1_request` | Send an HTTP/1.1 request. Returns the original 401 by default; set `allowTokenRequest=true` to acquire a token for the default or only ready role and retry once. Use `send_with_vars` for `{{name}}` placeholders. | Pass (HTTP 200) |
 | Send HTTP/2 request | `send_http2_request` | Send an HTTP/2 request. Returns the original 401 by default; set `allowTokenRequest=true` to acquire a token for the default or only ready role and retry once. Use `send_with_vars` for `{{name}}` placeholders. | Failed (no response from local target) |
-| Create HTTP/1.1 Repeater tab | `create_repeater_tab` | Open an HTTP/1.1 request in Repeater. | Pass |
-| Create HTTP/2 Repeater tab | `create_repeater_tab_http2` | Open an HTTP/2 request in Repeater. | Pass |
-| Send Repeater request | `send_repeater_request` | Send a request from a Repeater tab and read its response. | Pass (HTTP/1.1; HTTP/2 target returned 400) |
+| Create HTTP/1.1 Repeater tab | `create_repeater_tab` | Open an HTTP/1.1 request in the visible MCP Repeater group. | Pass |
+| Create HTTP/2 Repeater tab | `create_repeater_tab_http2` | Open an HTTP/2 request in the visible MCP Repeater group. | Pass |
+| Send Repeater request | `send_repeater_request` | Send a grouped request and read its response. When Burp is actively in use, send through the Burp HTTP API so manual tabs remain available; the response then stays in MCP. | Pass (HTTP/1.1; HTTP/2 target returned 400) |
 | Get Repeater tab | `get_repeater_tab` | Read a tab's request, response, and notes. | Pass |
 | List Repeater tabs | `list_repeater_tabs` | List Repeater tabs created through MCP. | Pass |
 | Set Repeater notes | `set_repeater_notes` | Add or replace notes in a Repeater tab. | Pass |
 | Set Repeater response end marker | `set_repeater_response_end_marker` | Set or clear where a Repeater response display ends. | Failed (check was cancelled) |
-| Send proxy history item to Repeater | `send_proxy_history_to_repeater` | Open a Proxy history request in Repeater and optionally send it. | Pass (HTTP 200) |
-| Send recorded request to Repeater | `send_recorded_request_to_repeater` | Open and resend a captured request or Proxy history request in Repeater. | Pass (both sources; HTTP 200) |
+| Send proxy history item to Repeater | `send_proxy_history_to_repeater` | Open a Proxy history request in the MCP group and optionally send it. | Pass (HTTP 200) |
+| Send recorded request to Repeater | `send_recorded_request_to_repeater` | Open and resend a captured request or Proxy history request in the MCP group. | Pass (both sources; HTTP 200) |
 | Send to Intruder | `send_to_intruder` | Open a request in Intruder. | Pass (command accepted) |
 
 ## Proxy history, Logger, WebSocket history, and Organizer

@@ -120,6 +120,7 @@ class ResponseEndTest {
         SwingUtilities.invokeAndWait {
             frame.contentPane.add(top)
             frame.setSize(800, 400)
+            frame.focusableWindowState = false
             frame.isVisible = true
         }
         try {
