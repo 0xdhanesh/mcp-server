@@ -3,6 +3,7 @@ package net.portswigger.mcp.tools
 import java.awt.CardLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import net.portswigger.mcp.security.VariableStore
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -15,6 +16,22 @@ import javax.swing.SwingUtilities
 import javax.swing.table.DefaultTableModel
 
 class LoggerUiTest {
+    @Test
+    fun `stored token is redacted before writing a Logger comment`() {
+        val canary = "eyJhbGciOiJub25l.canary.signature"
+        ToolResultRedaction.store = VariableStore().apply { put("canary", canary, "admin", "api.target") }
+        try {
+            onEdt {
+                val table = loggerTable()
+                val result = LoggerUi.setComment(table, 4, "observed $canary", append = false)
+                assertInstanceOf(LoggerUi.CommentResult.Updated::class.java, result)
+                assertEquals("observed {{canary}}", table.model.getValueAt(0, 6))
+            }
+        } finally {
+            ToolResultRedaction.store = null
+        }
+    }
+
     @Test
     fun `lists visible Logger rows and edits the exact visible number after sorting`() = onEdt {
         val table = loggerTable()

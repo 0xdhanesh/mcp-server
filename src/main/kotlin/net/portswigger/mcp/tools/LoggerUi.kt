@@ -117,7 +117,7 @@ internal object LoggerUi {
         val existing = cellText(table, row, commentColumn)
         // Logger's inline editor is a single-line text field in Burp 2026.9.
         val incoming = comment.replace(Regex("[\\r\\n]+"), " ").trim()
-        val next = if (append && existing.isNotBlank() && incoming.isNotBlank()) "$existing | $incoming" else incoming
+        val next = safeMetadata(if (append && existing.isNotBlank() && incoming.isNotBlank()) "$existing | $incoming" else incoming)
         val selectedModelRows = table.selectedRows.map(table::convertRowIndexToModel)
         try {
             // Burp's Logger editor can act on the selected request rather than the

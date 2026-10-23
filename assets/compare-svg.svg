@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="250" viewBox="0 0 800 250">
   <title>MCP server tool counts</title>
-  <desc>PortSwigger mcp-server registers 27 total tools: 24 Community and 3 Professional-only. 0xdhanesh mcp-server registers 43 total tools: 39 Community and 4 Professional-only. The fork has 16 more tools overall.</desc>
+  <desc>PortSwigger mcp-server comparison baseline has 27 total tools: 24 Community and 3 Professional-only. 0xdhanesh mcp-server v3.0.0 registers 52 total tools: 48 Community and 4 Professional-only. The fork has 25 more tools overall.</desc>
   <defs>
     <style>
       .bg { fill: #0d1117; }
@@ -62,11 +62,11 @@
     <text x="150" y="58" class="text-title">mcp-server</text>
 
     <!-- Fork tool count -->
-    <text x="125" y="130" class="text-num-green">43</text>
+    <text x="125" y="130" class="text-num-green">52</text>
 
     <!-- Difference -->
-    <text x="180" y="95" class="text-delta">+16↑</text>
+    <text x="180" y="95" class="text-delta">+25↑</text>
 
-    <text x="150" y="155" class="text-sub">39 Community + 4 Pro-only</text>
+    <text x="150" y="155" class="text-sub">48 Community + 4 Pro-only</text>
   </g>
 </svg>

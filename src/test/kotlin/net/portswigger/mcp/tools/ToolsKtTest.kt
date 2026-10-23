@@ -1148,10 +1148,24 @@ class ToolsKtTest {
                 assertTrue(sentText.contains("hello END"))
                 assertTrue(sentText.contains("truncated at the marker"))
                 assertFalse(sentText.substringBefore("End marker").contains("tail"))
+
+                mockkObject(RepeaterUi)
+                try {
+                    every { RepeaterUi.trySend(any(), "history-4", any(), any()) } returns
+                        RepeaterUiSend.BurpInUse("Burp is in use; manual tabs must stay available.")
+                    val whileWorking = client.callTool(
+                        "send_repeater_request", mapOf("tabName" to "history-4")
+                    ).expectTextContent()
+                    assertTrue(whileWorking.contains("Burp is in use"))
+                    assertTrue(whileWorking.contains("Issued by: Burp HTTP API"))
+                    assertTrue(whileWorking.contains("hello END"))
+                } finally {
+                    unmockkObject(RepeaterUi)
+                }
             }
 
             verify { repeater.sendToRepeater(request, "history-4") }
-            verify { http.sendRequest(request, HttpMode.HTTP_1, "mcp-repeater-history-4") }
+            verify(exactly = 2) { http.sendRequest(request, HttpMode.HTTP_1, "mcp-repeater-history-4") }
         }
 
         @Test

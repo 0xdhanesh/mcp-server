@@ -7,6 +7,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.tools.ToolActivity
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -42,6 +43,7 @@ class McpServerIntegrationTest {
 
     @BeforeEach
     fun setup() {
+        ToolActivity.clear()
         serverManager.start(config) { state ->
             when (state) {
                 ServerState.Running -> serverReady.countDown()
@@ -68,6 +70,7 @@ class McpServerIntegrationTest {
             }
         }
         serverManager.stop {}
+        ToolActivity.clear()
     }
 
     @Test
@@ -84,9 +87,19 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("output_user_options"), "Server should have output_user_options tool")
             assertTrue(toolNames.contains("list_logger_requests"), "Server should have list_logger_requests tool")
             assertTrue(toolNames.contains("set_logger_comment"), "Server should have set_logger_comment tool")
+            assertTrue(toolNames.contains("acquire_session_var"), "Server should have acquire_session_var tool")
+            assertTrue(toolNames.contains("acquire_configured_session_var"), "Server should have acquire_configured_session_var tool")
+            assertTrue(toolNames.contains("get_session_auth_status"), "Server should have get_session_auth_status tool")
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")
+
+            val result = client.callTool("url_encode", mapOf("content" to "activity-test-value"))
+            assertNotNull(result)
+            val call = ToolActivity.snapshot().single()
+            assertEquals("url_encode", call.toolName)
+            assertTrue(call.input.contains("activity-test-value"))
+            assertTrue(call.output.contains("content"))
         } catch (e: Exception) {
             fail("Connection failed: ${e.message}")
         }

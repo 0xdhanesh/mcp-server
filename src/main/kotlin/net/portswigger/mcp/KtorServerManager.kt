@@ -16,6 +16,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.mcp
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.registerTools
 import net.portswigger.mcp.tools.CapturedHttpRequests
+import net.portswigger.mcp.security.VariableStore
 import java.net.URI
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -23,7 +24,8 @@ import java.util.concurrent.TimeUnit
 
 class KtorServerManager(
     private val api: MontoyaApi,
-    private val capturedRequests: CapturedHttpRequests = CapturedHttpRequests()
+    private val capturedRequests: CapturedHttpRequests = CapturedHttpRequests(),
+    private val variableStore: VariableStore = VariableStore()
 ) : ServerManager {
 
     private var server: EmbeddedServer<*, *>? = null
@@ -38,7 +40,7 @@ class KtorServerManager(
                 server = null
 
                 val mcpServer = Server(
-                    serverInfo = Implementation("burp-suite", "1.1.2"), options = ServerOptions(
+                    serverInfo = Implementation("burp-suite", ExtensionVersion.VERSION), options = ServerOptions(
                         capabilities = ServerCapabilities(
                             tools = ServerCapabilities.Tools(listChanged = false)
                         )
@@ -100,7 +102,7 @@ class KtorServerManager(
                         mcpServer
                     }
 
-                    mcpServer.registerTools(api, config, capturedRequests)
+                    mcpServer.registerTools(api, config, capturedRequests, variableStore)
                 }.apply {
                     start(wait = false)
                 }

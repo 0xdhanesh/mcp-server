@@ -48,6 +48,7 @@ internal sealed class RepeaterUiSend {
     data class Response(val text: String, val via: String = "Repeater Send") : RepeaterUiSend()
     data class ClickedUnreadable(val detail: String) : RepeaterUiSend()
     data class NotAvailable(val detail: String) : RepeaterUiSend()
+    data class BurpInUse(val detail: String) : RepeaterUiSend()
 }
 
 internal object RepeaterUi {
@@ -59,6 +60,9 @@ internal object RepeaterUi {
     ): RepeaterUiSend {
         if (frame == null || runCatching { frame.isDisplayable }.getOrDefault(false) == false) {
             return RepeaterUiSend.NotAvailable("Burp's window is not available, so Repeater Send could not be used.")
+        }
+        if (userIsWorking(frame)) {
+            return RepeaterUiSend.BurpInUse("Burp is in use; MCP will send through the Burp HTTP API without switching Repeater tabs.")
         }
 
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -148,6 +152,7 @@ internal object RepeaterUi {
         expectedRequest: String? = null
     ): Boolean {
         if (frame == null) return false
+        if (userIsWorking(frame)) return false
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val wrote = runCatching {
@@ -184,6 +189,7 @@ internal object RepeaterUi {
      */
     fun tryReadRequest(frame: Frame?, tabName: String, expectedRequest: String? = null): String? {
         if (frame == null) return null
+        if (userIsWorking(frame)) return null
         return runCatching {
             preservingView(frame) {
                 val tab = openedRepeaterTab(frame, tabName, expectedRequest) ?: return@preservingView null
@@ -225,6 +231,12 @@ internal object RepeaterUi {
     }
 
     fun suiteFrameOrNull(frameProvider: () -> Frame?): Frame? = runCatching { frameProvider() }.getOrNull()
+
+    private fun userIsWorking(frame: Frame): Boolean {
+        if (!frame.isActive) return false
+        val owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner ?: return false
+        return SwingUtilities.isDescendingFrom(owner, frame)
+    }
 
     internal fun activateSuiteTool(root: Component, title: String) {
         if (suiteContent(root, title) != null) {

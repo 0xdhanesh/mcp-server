@@ -8,16 +8,28 @@ import net.portswigger.mcp.ExtensionVersion
 import net.portswigger.mcp.ServerState
 import net.portswigger.mcp.Swing
 import net.portswigger.mcp.config.components.*
-import net.portswigger.mcp.providers.Provider
+import net.portswigger.mcp.security.VariableStore
+import java.awt.BasicStroke
 import java.awt.BorderLayout
-import java.awt.Component.CENTER_ALIGNMENT
+import java.awt.Component
+import java.awt.Component.LEFT_ALIGNMENT
+import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Rectangle
+import java.awt.RenderingHints
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Path2D
 import java.awt.font.TextAttribute
 import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
 
-class ConfigUi(private val config: McpConfig, private val providers: List<Provider>) {
+class ConfigUi(
+    private val config: McpConfig,
+    private val variableStore: VariableStore = VariableStore()
+) {
 
     private val panel = JPanel(BorderLayout())
     val component: JComponent get() = panel
@@ -45,12 +57,12 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     private val validationErrorLabel = WarningLabel()
     private val hostField = JTextField(15)
     private val portField = JTextField(5)
-    private val reinstallNotice = WarningLabel("Make sure to reinstall after changing server settings")
+    private val restartNotice = WarningLabel("Restart the MCP server after changing its host or port.")
 
     private lateinit var serverConfigurationPanel: ServerConfigurationPanel
     private lateinit var advancedOptionsPanel: AdvancedOptionsPanel
     private lateinit var autoApproveTargetsPanel: AutoApproveTargetsPanel
-    private lateinit var installationPanel: InstallationPanel
+    private lateinit var tokenRequestPanel: TokenRequestPanel
     private val activityLogPanel = ActivityLogPanel()
 
     private var toggleListener: ((Boolean) -> Unit)? = null
@@ -77,14 +89,12 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         )
 
         advancedOptionsPanel = AdvancedOptionsPanel(
-            hostField = hostField, portField = portField, reinstallNotice = reinstallNotice
+            hostField = hostField, portField = portField, restartNotice = restartNotice
         )
 
         autoApproveTargetsPanel = AutoApproveTargetsPanel(config = config)
 
-        installationPanel = InstallationPanel(
-            config = config, providers = providers, reinstallNotice = reinstallNotice, parentComponent = panel
-        )
+        tokenRequestPanel = TokenRequestPanel(config, variableStore)
 
         setupConfigListeners()
     }
@@ -158,77 +168,52 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     }
 
     private fun buildUi() {
-        val leftPanel = JPanel(BorderLayout()).apply {
-            background = Design.Colors.surface
-            border = BorderFactory.createEmptyBorder(
-                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.MD
-            )
-        }
-
-        val headerBox = createVerticalBox().apply {
-            add(JLabel(ExtensionVersion.NAME).apply {
-                font = Design.Typography.headlineMedium
-                foreground = Design.Colors.onSurface
-                alignmentX = CENTER_ALIGNMENT
-            })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(JLabel("Burp MCP Server exposes Burp tooling to AI clients.").apply {
-                font = Design.Typography.bodyLarge
-                foreground = Design.Colors.onSurfaceVariant
-                alignmentX = CENTER_ALIGNMENT
-            })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(
-                Anchor(
-                    text = "Learn more about the Model Context Protocol",
-                    url = "https://modelcontextprotocol.io/introduction"
-                ).apply { alignmentX = CENTER_ALIGNMENT })
-            add(createVerticalStrut(Design.Spacing.MD))
-            add(creditLine())
-            add(createVerticalStrut(Design.Spacing.LG))
-        }
-
-        leftPanel.add(headerBox, BorderLayout.NORTH)
-        leftPanel.add(activityLogPanel, BorderLayout.CENTER)
-
-        val rightPanelContent = JPanel().apply {
+        val settings = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = Design.Colors.surface
-            border = BorderFactory.createEmptyBorder(
-                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG
-            )
+            isOpaque = false
+            add(serverConfigurationPanel)
+            add(createVerticalStrut(Design.Spacing.MD))
+            add(advancedOptionsPanel)
+            add(createVerticalStrut(Design.Spacing.SM))
+            add(restartNotice)
+            add(createVerticalStrut(Design.Spacing.LG))
+            add(creditLine())
         }
-
-        val rightPanel = JScrollPane(rightPanelContent).apply {
-            border = null
-            background = Design.Colors.surface
-            viewport.background = Design.Colors.surface
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            verticalScrollBar.unitIncrement = 16
+        val tabs = JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT).apply {
+            addTab("Activity Log", JPanel(BorderLayout()).apply {
+                background = Design.Colors.surface
+                border = BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+                add(activityLogPanel, BorderLayout.CENTER)
+            })
+            addTab("Token Request", scrollablePage(tokenRequestPanel))
+            addTab("Auto-Approved HTTP Requests", scrollablePage(autoApproveTargetsPanel))
+            addTab("", JPanel())
+            setTabComponentAt(tabCount - 1, JSeparator(SwingConstants.VERTICAL).apply {
+                preferredSize = Dimension(1, 18)
+            })
+            setEnabledAt(tabCount - 1, false)
+            addTab("MCP Settings", scrollablePage(settings))
+            setTabComponentAt(tabCount - 1, JLabel("MCP Settings", GearIcon(), SwingConstants.LEADING).apply {
+                iconTextGap = Design.Spacing.SM
+            })
+            minimumSize = Dimension(0, 0)
         }
+        panel.add(tabs, BorderLayout.CENTER)
+    }
 
-        rightPanelContent.add(serverConfigurationPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
-
-        rightPanelContent.add(autoApproveTargetsPanel)
-
-        rightPanelContent.add(createVerticalStrut(15))
-        rightPanelContent.add(advancedOptionsPanel)
-        rightPanelContent.add(createVerticalGlue())
-        rightPanelContent.add(reinstallNotice)
-        rightPanelContent.add(createVerticalStrut(10))
-
-        rightPanelContent.add(installationPanel)
-
-        val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
-        panel.add(columnsPanel, BorderLayout.CENTER)
+    private fun scrollablePage(content: JComponent): JScrollPane = JScrollPane(
+        ScrollablePage(content)
+    ).apply {
+        border = null
+        viewport.background = Design.Colors.surface
+        verticalScrollBar.unitIncrement = 16
+        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
     }
 
     private fun creditLine(): JComponent {
         return JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
             isOpaque = false
-            alignmentX = CENTER_ALIGNMENT
+            alignmentX = LEFT_ALIGNMENT
             add(JLabel("- Vibed by 0xdhanesh || ").apply {
                 font = Design.Typography.bodyLarge
                 foreground = Design.Colors.onSurfaceVariant
@@ -241,6 +226,59 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     mapOf(TextAttribute.UNDERLINE to TextAttribute.UNDERLINE_ON)
                 )
             })
+        }
+    }
+}
+
+private class ScrollablePage(content: JComponent) : JPanel(BorderLayout()), Scrollable {
+    init {
+        background = Design.Colors.surface
+        border = BorderFactory.createEmptyBorder(
+            Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
+        )
+        add(content, BorderLayout.NORTH)
+    }
+
+    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+    override fun getScrollableUnitIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int = 16
+    override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int =
+        (if (orientation == SwingConstants.VERTICAL) visibleRect.height else visibleRect.width).coerceAtLeast(16)
+    override fun getScrollableTracksViewportWidth(): Boolean = (parent?.width ?: 0) >= preferredSize.width
+    override fun getScrollableTracksViewportHeight(): Boolean = false
+}
+
+/** Outline gear drawn in the host component's foreground color, matching Burp's settings icon. */
+private class GearIcon(private val size: Int = 16) : Icon {
+    override fun getIconWidth(): Int = size
+    override fun getIconHeight(): Int = size
+
+    override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+            g2.color = c?.foreground ?: Design.Colors.onSurface
+            g2.translate(x + size / 2.0, y + size / 2.0)
+            val scale = size / 16.0
+            g2.scale(scale, scale)
+            g2.stroke = BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+
+            val teeth = 8
+            val outer = 7.2
+            val inner = 5.4
+            val path = Path2D.Double()
+            for (i in 0 until teeth * 4) {
+                val angle = Math.PI * 2 * i / (teeth * 4) - Math.PI / 2
+                val r = if ((i / 2) % 2 == 0) outer else inner
+                val px = Math.cos(angle) * r
+                val py = Math.sin(angle) * r
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.closePath()
+            g2.draw(path)
+            g2.draw(Ellipse2D.Double(-2.3, -2.3, 4.6, 4.6))
+        } finally {
+            g2.dispose()
         }
     }
 }

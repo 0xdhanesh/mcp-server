@@ -21,7 +21,9 @@ internal fun openRepeaterTab(
     httpMode: HttpMode,
     notes: String?
 ): String {
-    val name = requestedName?.takeIf { it.isNotBlank() } ?: "mcp-${System.nanoTime().toString(16)}"
+    requireNoStoredSecret(request.toString())
+    val name = requestedName?.takeIf { it.isNotBlank() }?.let(::safeMetadata) ?: "mcp-${System.nanoTime().toString(16)}"
+    val safeNotes = notes?.let(::safeMetadata)
     val frame = suiteFrame(api)
     RepeaterUi.preservingView(frame) {
         api.repeater().sendToRepeater(request, name)
@@ -29,21 +31,24 @@ internal fun openRepeaterTab(
     val stored = RepeaterSession.get(name) ?: StoredRepeaterTab(name, request, httpMode)
     stored.request = request
     stored.httpMode = httpMode
-    if (notes != null) stored.notes = notes
+    if (safeNotes != null) stored.notes = safeNotes
     stored.connectionId = stored.connectionId ?: RepeaterSession.connectionIdFor(name)
     RepeaterSession.save(stored)
+    val grouped = RepeaterGroups.tryGroup(frame, name)
 
-    val notesWritten = if (notes != null) {
-        RepeaterUi.trySetNotes(frame, name, notes, expectedRequest = request.toString())
+    val notesWritten = if (safeNotes != null) {
+        RepeaterUi.trySetNotes(frame, name, safeNotes, expectedRequest = request.toString())
     } else {
         false
     }
 
     return buildString {
         appendLine("Opened Repeater tab '$name'.")
+        appendLine(if (grouped) "Placed it in the MCP Repeater group." else
+            "Could not place it in the MCP Repeater group; check the visible tab in Burp.")
         appendLine("Issue it with send_repeater_request so the model can read the response.")
         append("HTTP mode: ${httpMode.name}. Connection id: ${stored.connectionId}.")
-        if (notes != null) {
+        if (safeNotes != null) {
             append(" Notes saved")
             append(if (notesWritten) " in the Repeater Notes field." else " for this tab.")
         }
@@ -64,8 +69,10 @@ internal fun issueRepeaterTab(
 ): String {
     val tab = RepeaterSession.get(tabName)
         ?: return "No Repeater tab named '$tabName'. Send a request to Repeater first, and pass that tab name."
+    requireNoStoredSecret(tab.request.toString())
 
     if (!replacementContent.isNullOrBlank()) {
+        requireNoStoredSecret(replacementContent)
         val service = tab.request.httpService()
         tab.request = HttpRequest.httpRequest(service, normalizeHttpContent(replacementContent))
         if (httpModeName == null) tab.httpMode = HttpMode.HTTP_1
@@ -73,9 +80,10 @@ internal fun issueRepeaterTab(
         RepeaterUi.preservingView(opened) {
             api.repeater().sendToRepeater(tab.request, tab.name)
         }
+        RepeaterGroups.tryGroup(opened, tab.name)
     }
     if (httpModeName != null) tab.httpMode = parseHttpMode(httpModeName)
-    if (notes != null) tab.notes = notes
+    if (notes != null) tab.notes = safeMetadata(notes)
     if (responseEndMarker != null) tab.responseEndMarker = responseEndMarker
     if (truncateAtEndMarker != null) tab.truncateAtEndMarker = truncateAtEndMarker
 
@@ -87,6 +95,7 @@ internal fun issueRepeaterTab(
 
     val frame = suiteFrame(api)
     if (tab.notes.isNotEmpty()) {
+        tab.notes = safeMetadata(tab.notes)
         RepeaterUi.trySetNotes(frame, tab.name, tab.notes, expectedRequest = tab.request.toString())
     }
 
@@ -114,10 +123,13 @@ internal fun issueRepeaterTab(
             }
             sendMiss = ui.detail
         }
+
+        is RepeaterUiSend.BurpInUse -> sendMiss = ui.detail
     }
 
     val visibleRequest = RepeaterUi.tryReadRequest(frame, tab.name)
     if (!visibleRequest.isNullOrBlank()) {
+        requireNoStoredSecret(visibleRequest)
         val service = tab.request.httpService()
         tab.request = HttpRequest.httpRequest(service, normalizeHttpContent(visibleRequest))
         RepeaterSession.save(tab)
@@ -205,7 +217,7 @@ internal fun annotateProxyHistory(
     val color = highlightColor?.takeIf { it.isNotBlank() }?.let { parseHighlightColor(it) }
     val updated = matched.mapNotNull { item ->
         if (item.annotations() == null) return@mapNotNull null
-        applyNotes(item, notes, append, color)
+        applyNotes(item, safeMetadata(notes), append, color)
         item.id()
     }
     if (updated.isEmpty()) return "Matched history items have no notes field."
@@ -273,7 +285,7 @@ private fun applyNotes(
     val annotations = item.annotations() ?: return
     val existing = annotations.notes().orEmpty()
     val next = if (append && existing.isNotBlank()) "$existing\n$notes" else notes
-    annotations.setNotes(next)
+    annotations.setNotes(safeMetadata(next))
     if (color != null) annotations.setHighlightColor(color)
 }
 
