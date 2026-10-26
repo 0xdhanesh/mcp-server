@@ -30,11 +30,12 @@ class ConfigUiTabsTest {
             try {
                 val tabs = walk(ui.component).filterIsInstance<JTabbedPane>().single()
                 assertEquals(listOf(
-                    "Activity Log", "Token Request", "Auto-Approved HTTP Requests", "", "MCP Settings"
+                    "Activity Log", "Token Request", "Configured Token Requests and Roles",
+                    "Auto-Approved HTTP Requests", "", "MCP Settings"
                 ), (0 until tabs.tabCount).map(tabs::getTitleAt))
                 assertEquals(JTabbedPane.SCROLL_TAB_LAYOUT, tabs.tabLayoutPolicy)
 
-                val separatorIndex = 3
+                val separatorIndex = 4
                 assertFalse(tabs.isEnabledAt(separatorIndex))
                 assertTrue(tabs.getTabComponentAt(separatorIndex) is JSeparator)
 
@@ -46,6 +47,12 @@ class ConfigUiTabsTest {
                 val settingsLabels = walk(tabs.getComponentAt(settingsIndex)).filterIsInstance<JLabel>().map { it.text }
                 assertTrue("Server Configuration" in settingsLabels)
                 assertTrue("Advanced Settings" in settingsLabels)
+                val tokenPage = tabs.getComponentAt(tabs.indexOfTab("Token Request"))
+                val configuredPage = tabs.getComponentAt(tabs.indexOfTab("Configured Token Requests and Roles"))
+                assertTrue(walk(tokenPage).filterIsInstance<JButton>().any { it.text == "Dry Run check" })
+                assertFalse(walk(tokenPage).filterIsInstance<JLabel>().any { it.text == "Memory-only request values" })
+                assertTrue(walk(configuredPage).filterIsInstance<JLabel>().any { it.text == "Memory-only request values" })
+                assertTrue(walk(configuredPage).filterIsInstance<JButton>().any { it.text == "Store value in memory" })
                 assertTrue(walk(ui.component).filterIsInstance<JButton>().none { it.text.contains("Install") })
             } finally {
                 ui.cleanup()

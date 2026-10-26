@@ -118,6 +118,77 @@ class AutoAuthTest {
     }
 
     @Test
+    fun `client credentials are sent to issuer and bearer token is retried on a different API host`() {
+        val issuer = "token-providing.domain.com"
+        val apiHost = "token-consuming.domain.com"
+        val store = VariableStore().apply {
+            put("client_id", "uat-client", "service", issuer)
+            put("client_secret", "uat-secret", "service", issuer)
+        }
+        val profile = TokenRequestProfile(
+            template = "curl -s -X POST https://$issuer/oauth/token " +
+                "-d 'grant_type=client_credentials&client_id={{client_id}}&client_secret={{client_secret}}'",
+            targetHost = apiHost
+        )
+        val config = mockk<McpConfig>()
+        every { config.tokenRequestProfile() } returns profile
+        every { config.requireHttpRequestApproval } returns false
+
+        val issuerService = mockk<HttpService>()
+        every { issuerService.host() } returns issuer
+        every { issuerService.port() } returns 443
+        val apiService = mockk<HttpService>()
+        every { apiService.host() } returns apiHost
+        every { apiService.port() } returns 443
+        val original = mockk<HttpRequest>()
+        val stripped = mockk<HttpRequest>()
+        val retried = mockk<HttpRequest>()
+        val tokenRequest = mockk<HttpRequest>()
+        every { original.httpService() } returns apiService
+        every { original.method() } returns "GET"
+        every { original.path() } returns "/resource"
+        every { original.withRemovedHeader("Authorization") } returns stripped
+        every { stripped.withAddedHeader("Authorization", "Bearer $token") } returns retried
+
+        val first = exchange(401, "{}")
+        val issued = exchange(200, "{\"access_token\":\"$token\"}")
+        val success = exchange(200, "{\"ok\":true}")
+        val http = mockk<Http>()
+        val api = mockk<MontoyaApi>()
+        every { api.http() } returns http
+        every { http.sendRequest(original) } returns first
+        every { http.sendRequest(tokenRequest) } returns issued
+        every { http.sendRequest(retried) } returns success
+
+        val issuerRequests = mutableListOf<String>()
+        mockkStatic(HttpService::class)
+        mockkStatic(HttpRequest::class)
+        try {
+            every { HttpService.httpService(issuer, 443, true) } returns issuerService
+            every { HttpRequest.httpRequest(issuerService, any<String>()) } answers {
+                issuerRequests += secondArg<String>()
+                tokenRequest
+            }
+            val outcome = sendMcpRequestWithAutoAuth(api, config, store, original,
+                allowTokenRequest = true)
+
+            assertSame(success, outcome.exchange)
+            assertEquals(1, issuerRequests.size)
+            assertTrue(issuerRequests.single().startsWith("POST /oauth/token HTTP/1.1\r\nHost: $issuer\r\n"))
+            assertTrue(issuerRequests.single().contains("Content-Type: application/x-www-form-urlencoded\r\n"))
+            assertTrue(issuerRequests.single().contains("grant_type=client_credentials&client_id=uat-client&client_secret=uat-secret"))
+            assertEquals(apiHost, store.listNames().single { it.name == "session" }.host)
+            assertFalse(store.listNames().any { it.name == "session" && it.host == issuer })
+            verify(exactly = 1) { http.sendRequest(original) }
+            verify(exactly = 1) { http.sendRequest(tokenRequest) }
+            verify(exactly = 1) { http.sendRequest(retried) }
+        } finally {
+            unmockkStatic(HttpRequest::class)
+            unmockkStatic(HttpService::class)
+        }
+    }
+
+    @Test
     fun `no ready role leaves the original 401 and makes no login request`() {
         val api = mockk<MontoyaApi>()
         val http = mockk<Http>()

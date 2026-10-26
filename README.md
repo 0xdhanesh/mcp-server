@@ -39,9 +39,9 @@ See [USAGE.md](USAGE.md) for step-by-step curl and raw HTTP token request setup.
 
 ## MCP views and activity log
 
-The MCP tab has separate **Activity Log**, **Token Request**, **Auto-Approved HTTP Requests**, and **MCP Settings** views. A divider and gear icon distinguish MCP Settings, which contains Server Configuration and Advanced Settings.
+The MCP tab has separate **Activity Log**, **Token Request**, **Configured Token Requests and Roles**, **Auto-Approved HTTP Requests**, and **MCP Settings** views. A divider and gear icon distinguish MCP Settings, which contains Server Configuration and Advanced Settings.
 
-In **Token Request**, choose CURL or raw HTTP and paste into the single request editor. The empty editor shows an example for the selected format. Memory-only field hints follow the `{{name}}` handles in the editor. **Dry Run check** validates the unsaved editor contents and reports handle coverage by role without saving or sending anything. **Check Automatic Readiness** checks the saved request and explains whether it can refresh a token after a 401. Automatic retry still requires an MCP HTTP send with `allowTokenRequest=true`.
+In **Token Request**, choose CURL or raw HTTP and paste into the single request editor. The empty editor shows an example for the selected format, and the token use host field shows how to target a separate API host. **Dry Run check** validates the unsaved editor contents without saving or sending anything. **Configured Token Requests and Roles** shows the saved request, role bindings, and memory-only input fields. **Check Automatic Readiness** there explains whether it can refresh a token after a 401. Automatic retry still requires an MCP HTTP send with `allowTokenRequest=true`.
 
 Activity Log shows the latest 200 tool calls, newest first. Open **Details** on a call to inspect its full arguments and result. **Clear logs** removes the retained calls; **Export logs** saves them as JSON Lines for debugging, oldest first. Session values and common credential fields are redacted in the view and export; the log stays in memory until cleared or the extension unloads.
 

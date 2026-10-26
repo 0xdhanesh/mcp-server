@@ -35,22 +35,24 @@ import javax.swing.table.DefaultTableModel
 
 /** Burp-persisted token request template. Secret values are supplied from VariableStore at send time. */
 class TokenRequestPanel(private val config: McpConfig, private val store: VariableStore) : JPanel() {
+    val configuredPage = JPanel()
     private val mode = JComboBox(arrayOf("CURL", "HTTP"))
     private val template = PlaceholderTextArea(9, 36)
     private val useHttps = javax.swing.JCheckBox("Use HTTPS for raw HTTP requests")
     private val contentLengthHint = JLabel("Raw HTTP: omit Content-Length; MCP calculates it after inserting memory values.")
     private val variableName = JTextField("session")
-    private val targetHost = JTextField()
+    private val targetHost = PlaceholderTextField("token-consuming.domain.com / leave for same domain")
     private val defaultIdentity = JTextField()
     private val selectorMode = JComboBox(arrayOf("JSONPath", "Regex"))
     private val selector = JTextField("$.access_token")
     private val inputName = PlaceholderTextField("username / password")
-    private val inputIdentity = PlaceholderTextField("admin / developer")
-    private val inputHost = JTextField()
+    private val inputIdentity = PlaceholderTextField("service / admin / user")
+    private val inputHost = PlaceholderTextField("token-providing.domain.com / leave for request host")
     private val inputValue = PlaceholderPasswordField("username / password will be masked as you type")
     private val memoryValuesHint = JLabel()
     private val status = JLabel(" ")
-    private val readinessStatus = JLabel(" ")
+    private val memoryStatus = JLabel(" ")
+    private val readinessStatus = JTextArea(2, 36)
     private val readinessPanel = JPanel()
     private val configuredSummary = JTextArea(6, 36)
     private val configuredRoles = object : DefaultTableModel(
@@ -58,15 +60,20 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     ) {
         override fun isCellEditable(row: Int, column: Int) = false
     }
+    private val configuredRolesView = JScrollPane(JTable(configuredRoles).apply {
+        fillsViewportHeight = true
+        autoResizeMode = JTable.AUTO_RESIZE_OFF
+        listOf(100, 220, 210, 150, 180).forEachIndexed { index, width ->
+            columnModel.getColumn(index).preferredWidth = width
+        }
+    }).apply {
+        preferredSize = Dimension(900, 120)
+        alignmentX = LEFT_ALIGNMENT
+    }
 
     init {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        alignmentX = LEFT_ALIGNMENT
-        background = Design.Colors.surface
-        border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(Design.Colors.outlineVariant),
-            BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
-        )
+        stylePage(this)
+        stylePage(configuredPage)
 
         add(Design.createSectionLabel("Token Request"))
         add(Box.createVerticalStrut(Design.Spacing.SM))
@@ -102,15 +109,17 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             add(JButton("Save request").apply { addActionListener { save() } })
             add(Box.createHorizontalStrut(Design.Spacing.SM))
             add(JButton("Clear saved request").apply { addActionListener { clear() } })
+            add(Box.createHorizontalStrut(Design.Spacing.SM))
+            add(JButton("Dry Run check").apply { addActionListener { dryRunCheck() } })
         })
         status.alignmentX = LEFT_ALIGNMENT
         status.font = Design.Typography.bodyMedium
         status.foreground = Design.Colors.onSurfaceVariant
         add(status)
 
-        add(Box.createVerticalStrut(Design.Spacing.MD))
-        add(Design.createSectionLabel("Configured token request and roles"))
-        add(JLabel("Shows the last saved request. Values stay hidden; Ready does not mean the issuer accepts them.").apply {
+        configuredPage.add(Design.createSectionLabel("Configured token request and roles"))
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.SM))
+        configuredPage.add(JLabel("Last saved request and role bindings. Values stay hidden; readiness does not confirm issuer acceptance.").apply {
             font = Design.Typography.labelMedium
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
@@ -124,42 +133,35 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             foreground = Design.Colors.onSurface
             alignmentX = LEFT_ALIGNMENT
         }
-        add(JScrollPane(configuredSummary).apply {
-            preferredSize = Dimension(900, 120)
+        configuredPage.add(JScrollPane(configuredSummary).apply {
+            preferredSize = Dimension(900, 104)
             alignmentX = LEFT_ALIGNMENT
         })
-        add(JScrollPane(JTable(configuredRoles).apply {
-            fillsViewportHeight = true
-            autoResizeMode = JTable.AUTO_RESIZE_OFF
-            listOf(100, 220, 210, 150, 180).forEachIndexed { index, width ->
-                columnModel.getColumn(index).preferredWidth = width
-            }
-        }).apply {
-            preferredSize = Dimension(900, 120)
-            alignmentX = LEFT_ALIGNMENT
-        })
-        add(JButton("Refresh configured items").apply {
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.SM))
+        configuredPage.add(configuredRolesView)
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.SM))
+        configuredPage.add(JButton("Refresh configured items").apply {
             alignmentX = LEFT_ALIGNMENT
             addActionListener { refreshConfiguredItems() }
         })
 
-        add(Box.createVerticalStrut(Design.Spacing.MD))
-        add(Design.createSectionLabel("Memory-only request values"))
-        add(memoryValuesHint.apply {
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.LG))
+        configuredPage.add(Design.createSectionLabel("Memory-only request values"))
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.SM))
+        configuredPage.add(memoryValuesHint.apply {
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
         })
-        add(field("Input variable name", inputName))
-        add(field("Identity / role", inputIdentity))
-        add(field("Request host (blank = token request host)", inputHost))
-        add(field("Value (cleared after storing)", inputValue))
-        add(JPanel(FlowLayout(FlowLayout.LEFT, 0, Design.Spacing.SM)).apply {
+        configuredPage.add(Box.createVerticalStrut(Design.Spacing.SM))
+        configuredPage.add(field("Input variable name", inputName))
+        configuredPage.add(field("Identity / role", inputIdentity))
+        configuredPage.add(field("Request host (blank = token request host)", inputHost))
+        configuredPage.add(field("Value (cleared after storing)", inputValue))
+        configuredPage.add(JPanel(FlowLayout(FlowLayout.LEFT, 0, Design.Spacing.SM)).apply {
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
             add(JButton("Store value in memory").apply { addActionListener { storeInputValue() } })
-            add(Box.createHorizontalStrut(Design.Spacing.SM))
-            add(JButton("Dry Run check").apply { addActionListener { dryRunCheck() } })
             add(Box.createHorizontalStrut(Design.Spacing.SM))
             add(JButton("Check Automatic Readiness").apply {
                 addActionListener {
@@ -169,7 +171,18 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             })
         })
 
-        readinessStatus.font = Design.Typography.bodyMedium
+        memoryStatus.alignmentX = LEFT_ALIGNMENT
+        memoryStatus.font = Design.Typography.bodyMedium
+        memoryStatus.foreground = Design.Colors.onSurfaceVariant
+        configuredPage.add(memoryStatus)
+        readinessStatus.apply {
+            isEditable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            font = Design.Typography.bodyMedium
+            text = " "
+        }
         readinessPanel.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
@@ -181,11 +194,26 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
                 foreground = Design.Colors.onSurfaceVariant
             })
         }
-        add(readinessPanel)
+        configuredPage.add(readinessPanel)
 
         config.tokenRequestProfile()?.let(::load)
         showMode()
         refreshConfiguredItems()
+    }
+
+    fun refreshConfiguredView() {
+        refreshConfiguredItems()
+        refreshReadiness()
+    }
+
+    private fun stylePage(page: JPanel) {
+        page.layout = BoxLayout(page, BoxLayout.Y_AXIS)
+        page.alignmentX = LEFT_ALIGNMENT
+        page.background = Design.Colors.surface
+        page.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(Design.Colors.outlineVariant),
+            BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+        )
     }
 
     private fun field(label: String, component: JComponent): JPanel = JPanel(BorderLayout(0, Design.Spacing.SM / 2)).apply {
@@ -219,9 +247,9 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
 
     /** Mirrors the {{name}} handles in the active request editor into the memory-only input hints. */
     private fun updateHandleHints() {
-        val source = template.text
+        val source = template.text.ifBlank { template.placeholder }
         val names = HANDLE.findAll(source).map { it.groupValues[1] }.distinct().toList()
-            .ifEmpty { listOf("username", "password") }
+            .ifEmpty { listOf("client_id", "client_secret") }
         val handles = names.map { "{{$it}}" }
         val joined = if (handles.size == 1) handles.single() else handles.dropLast(1).joinToString(", ") + " and " + handles.last()
         memoryValuesHint.text = "Store $joined for each role. Values are never saved with the request."
@@ -281,13 +309,13 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             val host = inputHost.text.trim().ifBlank { RequestTemplate.parse(current().requestTemplate()).host }
             val handle = store.put(inputName.text.trim(), String(chars), inputIdentity.text.trim(), host)
             inputValue.text = ""
-            status.foreground = Design.Colors.onSurfaceVariant
-            status.text = "Stored $handle in memory."
+            memoryStatus.foreground = Design.Colors.onSurfaceVariant
+            memoryStatus.text = "Stored $handle in memory."
             refreshConfiguredItems()
             refreshReadiness()
         } catch (error: Exception) {
-            status.foreground = Design.Colors.error
-            status.text = if (error.message == "Enter the actual variable value; {{name}} is a handle, not a value.") {
+            memoryStatus.foreground = Design.Colors.error
+            memoryStatus.text = if (error.message == "Enter the actual variable value; {{name}} is a handle, not a value.") {
                 error.message
             } else "Could not store value. Check variable name, identity, request, and host."
         } finally {
@@ -318,9 +346,13 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         configuredRoles.rowCount = 0
         val profile = config.tokenRequestProfile()
         if (profile == null) {
+            configuredRolesView.isVisible = false
             configuredSummary.text = "No token request is saved. Memory-only values may still exist; save a request to compare role bindings."
+            configuredPage.revalidate()
             return
         }
+        configuredRolesView.isVisible = true
+        configuredPage.revalidate()
         val snapshot = runCatching {
             val parsed = RequestTemplate.parse(profile.requestTemplate())
             val readiness = profile.readiness(store)
@@ -461,15 +493,15 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     }
 }
 
-private val CURL_PLACEHOLDER = """curl -X POST http://localhost/token \
-    -H 'Content-Type: application/x-www-form-urlencoded' \
-    -d 'grant_type=client_credentials&client_id={{cid}}&client_password={{cpass}}'"""
+private val CURL_PLACEHOLDER = """curl -X POST https://token-providing.domain.com/oauth/token \
+|  -H 'Content-Type: application/x-www-form-urlencoded' \
+|  -d 'grant_type=client_credentials&client_id={{client_id}}&client_secret={{client_secret}}'""".trimMargin()
 
-private val HTTP_PLACEHOLDER = """POST /token HTTP/1.1
-Host: 127.0.0.1:5000
+private val HTTP_PLACEHOLDER = """POST /oauth/token HTTP/1.1
+Host: token-providing.domain.com
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_id={{cid}}&client_password={{cpass}}"""
+grant_type=client_credentials&client_id={{client_id}}&client_secret={{client_secret}}"""
 
 /** Paints [placeholder] in a muted color while the field is empty. */
 private fun paintPlaceholder(g: java.awt.Graphics, field: JTextField, placeholder: String) {
@@ -526,7 +558,9 @@ private class PlaceholderTextArea(rows: Int, columns: Int) : JTextArea(rows, col
 
 private class PlaceholderTextField(placeholder: String) : JTextField() {
     var placeholder: String = placeholder
-        set(value) { field = value; repaint() }
+        set(value) { field = value; getAccessibleContext().accessibleDescription = value; repaint() }
+
+    init { getAccessibleContext().accessibleDescription = placeholder }
 
     override fun paintComponent(g: java.awt.Graphics) {
         super.paintComponent(g)

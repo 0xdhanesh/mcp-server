@@ -193,9 +193,9 @@ class TokenRequestProfileTest {
         store.put("pwd", "admin-password", "admin", "api.target")
         SwingUtilities.invokeAndWait {
             val panel = TokenRequestPanel(config, store)
-            val summary = components(panel).filterIsInstance<JTextArea>()
+            val summary = components(panel.configuredPage).filterIsInstance<JTextArea>()
                 .first { !it.isEditable && it.text.startsWith("Saved request:") }
-            val table = components(panel).filterIsInstance<JTable>().single()
+            val table = components(panel.configuredPage).filterIsInstance<JTable>().single()
             assertTrue(summary.text.contains("username -> {{usrname}}, password -> {{pwd}}"))
             assertTrue(summary.text.contains("POST https://auth.target:443/token"))
             assertFalse(summary.text.contains("alice-password"))
@@ -209,7 +209,7 @@ class TokenRequestProfileTest {
             assertEquals("{{pwd}}", rows.getValue("bob")[2])
             assertEquals("api.target", rows.getValue("admin")[4])
             store.put("pwd", "bob-password", "bob", "auth.target")
-            components(panel).filterIsInstance<JButton>().first { it.text == "Refresh configured items" }.doClick()
+            components(panel.configuredPage).filterIsInstance<JButton>().first { it.text == "Refresh configured items" }.doClick()
             assertEquals("None (ready to request)", table.getValueAt(2, 2))
             assertFalse(summary.text.contains("bob-password"))
         }
@@ -224,8 +224,14 @@ class TokenRequestProfileTest {
             val editor = (field(panel, "Curl command or raw HTTP/1.x request") as JScrollPane).viewport.view as JTextArea
             assertEquals("", editor.text)
             assertTrue(editor.accessibleContext.accessibleDescription.startsWith("curl -X POST"))
+            assertTrue(editor.accessibleContext.accessibleDescription.contains("token-providing.domain.com"))
+            assertTrue(editor.accessibleContext.accessibleDescription.contains("{{client_secret}}"))
+            assertEquals("token-consuming.domain.com / leave for same domain",
+                field(panel, "Token use host (blank = request host)").accessibleContext.accessibleDescription)
+            assertEquals("", (field(panel, "Token use host (blank = request host)") as JTextField).text)
             mode.selectedIndex = 1
-            assertTrue(editor.accessibleContext.accessibleDescription.startsWith("POST /token HTTP/1.1"))
+            assertTrue(editor.accessibleContext.accessibleDescription.startsWith("POST /oauth/token HTTP/1.1"))
+            assertTrue(editor.accessibleContext.accessibleDescription.contains("Host: token-providing.domain.com"))
             assertFalse(editor.accessibleContext.accessibleDescription.contains("Content-Length:"))
             editor.text = "POST /token HTTP/1.1\r\nHost: auth.target\r\nContent-Type: application/json\r\n\r\n" +
                 """{"username":"{{username}}","password":"{{password}}"}"""
@@ -272,12 +278,12 @@ class TokenRequestProfileTest {
             val panel = TokenRequestPanel(config, store)
             ((field(panel, "Curl command or raw HTTP/1.x request") as JScrollPane).viewport.view as JTextArea).text =
                 "curl https://auth.target/token --json '{\"username\":\"{{username}}\"}'"
-            (field(panel, "Input variable name") as JTextField).text = "username"
-            (field(panel, "Identity / role") as JTextField).text = "admin"
-            (field(panel, "Value (cleared after storing)") as JPasswordField).text = "example-user"
-            components(panel).filterIsInstance<JButton>().first { it.text == "Store value in memory" }.doClick()
+            (field(panel.configuredPage, "Input variable name") as JTextField).text = "username"
+            (field(panel.configuredPage, "Identity / role") as JTextField).text = "admin"
+            (field(panel.configuredPage, "Value (cleared after storing)") as JPasswordField).text = "example-user"
+            components(panel.configuredPage).filterIsInstance<JButton>().first { it.text == "Store value in memory" }.doClick()
             assertEquals(listOf(VariableStore.Name("username", "admin", "auth.target")), store.listNames())
-            assertTrue((field(panel, "Value (cleared after storing)") as JPasswordField).password.isEmpty())
+            assertTrue((field(panel.configuredPage, "Value (cleared after storing)") as JPasswordField).password.isEmpty())
             assertFalse(values.containsKey("tokenRequestProfileJson"))
         }
     }

@@ -186,7 +186,13 @@ class ConfigUi(
                 add(activityLogPanel, BorderLayout.CENTER)
             })
             addTab("Token Request", scrollablePage(tokenRequestPanel))
+            addTab("Configured Token Requests and Roles", scrollablePage(tokenRequestPanel.configuredPage))
             addTab("Auto-Approved HTTP Requests", scrollablePage(autoApproveTargetsPanel))
+            addChangeListener {
+                if (selectedIndex == indexOfTab("Configured Token Requests and Roles")) {
+                    tokenRequestPanel.refreshConfiguredView()
+                }
+            }
             addTab("", JPanel())
             setTabComponentAt(tabCount - 1, JSeparator(SwingConstants.VERTICAL).apply {
                 preferredSize = Dimension(1, 18)

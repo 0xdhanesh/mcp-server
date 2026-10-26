@@ -118,6 +118,7 @@ internal data class RequestTemplate(val host: String, val service: HttpService, 
                 append("$selectedMethod $target HTTP/1.1\r\nHost: $hostHeader\r\n")
                 headers.forEach { append(it).append("\r\n") }
                 if (jsonBody && !hasContentType) append("Content-Type: application/json\r\n")
+                else if (body != null && !hasContentType) append("Content-Type: application/x-www-form-urlencoded\r\n")
                 if (body != null) append("Content-Length: ${body.toByteArray(Charsets.UTF_8).size}\r\n")
                 append("\r\n")
                 if (body != null) append(body)
