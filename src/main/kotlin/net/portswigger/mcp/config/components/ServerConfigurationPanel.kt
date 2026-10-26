@@ -4,6 +4,8 @@ import net.portswigger.mcp.config.Design
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.config.ToggleSwitch
 import java.awt.FlowLayout
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.awt.event.ItemEvent
 import javax.swing.*
 import javax.swing.Box.createHorizontalStrut
@@ -47,6 +49,24 @@ class ServerConfigurationPanel(
 
         val enabledPanel = createEnabledPanel()
         add(enabledPanel)
+        add(createVerticalStrut(Design.Spacing.MD))
+
+        add(JLabel("MCP access key required: use X-Burp-Mcp-Key in your local client.").apply {
+            foreground = Design.Colors.onSurfaceVariant
+        })
+        val keyButtons = JPanel(FlowLayout(FlowLayout.LEFT, 0, 4)).apply { isOpaque = false }
+        keyButtons.add(JButton("Copy MCP access key").apply {
+            addActionListener { copyAccessKey(config.accessKey()) }
+        })
+        keyButtons.add(createHorizontalStrut(Design.Spacing.SM))
+        keyButtons.add(JButton("Rotate MCP access key").apply {
+            addActionListener {
+                copyAccessKey(config.rotateAccessKey())
+                JOptionPane.showMessageDialog(this@ServerConfigurationPanel,
+                    "A new MCP access key was copied. Update the client header and reconnect.")
+            }
+        })
+        add(keyButtons)
         add(createVerticalStrut(Design.Spacing.MD))
 
         val configEditingToolingCheckBox = createCheckBoxWithSubtitle(
@@ -119,6 +139,10 @@ class ServerConfigurationPanel(
         enabledPanel.add(createHorizontalStrut(Design.Spacing.MD))
         enabledPanel.add(enabledToggle)
         return enabledPanel
+    }
+
+    private fun copyAccessKey(key: String) {
+        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(key), null)
     }
 
     private fun createDataAccessApprovalCheckBox(): JCheckBox {

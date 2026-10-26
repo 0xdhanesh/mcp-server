@@ -27,9 +27,12 @@ internal data class ExtensionCommand(
 )
 
 internal val KNOWN_EXTENSION_PROBES = listOf(
-    ExtensionCommand("ATOR", "X-ATOR-Command", "status"),
     ExtensionCommand("MCP discovery", "X-Burp-Mcp-Discover", "tools")
 )
+
+internal fun isSafeExtensionProbe(header: String, command: String): Boolean =
+    (header.equals("X-Burp-Mcp-Discover", ignoreCase = true) && command.equals("tools", ignoreCase = true)) ||
+        (header.equals("X-ATOR-Command", ignoreCase = true) && command.equals("status", ignoreCase = true))
 
 internal fun probeExtension(
     api: MontoyaApi,
@@ -38,7 +41,8 @@ internal fun probeExtension(
     body: String = "",
     hostname: String = "127.0.0.1",
     port: Int = 1,
-    usesHttps: Boolean = false
+    usesHttps: Boolean = false,
+    includeBody: Boolean = true
 ): String {
     val content = buildString {
         append("GET /burp-mcp-extension-probe HTTP/1.1\r\n")
@@ -58,14 +62,14 @@ internal fun probeExtension(
     if (raw.isNullOrBlank() || raw == "<no response>") {
         return "No extension answered $header: $command."
     }
-    return summarizeExtensionResponse(header, command, raw)
+    return summarizeExtensionResponse(header, command, raw, includeBody)
 }
 
-internal fun summarizeExtensionResponse(header: String, command: String, raw: String): String {
+internal fun summarizeExtensionResponse(header: String, command: String, raw: String, includeBody: Boolean = true): String {
     val body = httpBody(raw)
     val parsed = runCatching { Json.parseToJsonElement(body) }.getOrNull() as? JsonObject
     if (parsed == null) {
-        return "Response for $header: $command\n$raw"
+        return "Response for $header: $command (unstructured body withheld)"
     }
 
     val extension = parsed.string("extension") ?: parsed.string("name") ?: "extension"
@@ -85,8 +89,12 @@ internal fun summarizeExtensionResponse(header: String, command: String, raw: St
             appendLine("Tools:")
             tools.forEach { appendLine("- $it") }
         }
-        appendLine("Body:")
-        append(body)
+        // ATOR may be an older build whose status/export response contains live tokens.
+        // Discovery must never return raw extension bodies to the MCP client.
+        if (includeBody && !header.equals("X-ATOR-Command", ignoreCase = true)) {
+            appendLine("Body:")
+            append(body)
+        }
     }.trimEnd()
 }
 

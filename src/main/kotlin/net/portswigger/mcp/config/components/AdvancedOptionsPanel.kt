@@ -13,7 +13,7 @@ import javax.swing.event.DocumentListener
 class AdvancedOptionsPanel(
     private val hostField: JTextField,
     private val portField: JTextField,
-    private val reinstallNotice: WarningLabel
+    private val restartNotice: WarningLabel
 ) : JPanel() {
 
     init {
@@ -39,7 +39,7 @@ class AdvancedOptionsPanel(
     }
 
     private fun buildPanel() {
-        add(Design.createSectionLabel("Advanced Options"))
+        add(Design.createSectionLabel("Advanced Settings"))
         add(createVerticalStrut(Design.Spacing.MD))
 
         val formPanel = createFormPanel(
@@ -59,7 +59,7 @@ class AdvancedOptionsPanel(
             override fun removeUpdate(e: DocumentEvent?) = handle()
             override fun changedUpdate(e: DocumentEvent?) = handle()
             fun handle() {
-                reinstallNotice.isVisible = true
+                restartNotice.isVisible = true
             }
         })
     }

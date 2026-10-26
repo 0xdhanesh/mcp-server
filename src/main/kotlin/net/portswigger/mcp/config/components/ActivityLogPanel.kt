@@ -7,31 +7,35 @@ import java.awt.Component
 import java.awt.Dimension
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.time.Instant
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JFileChooser
 import javax.swing.JLabel
+import javax.swing.JOptionPane
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
 import javax.swing.SwingUtilities
-import javax.swing.plaf.TextUI
-import javax.swing.text.View
 
 /**
- * Lists MCP tool calls in the suite tab. Each row is `HH:mm:ss - Pass|Fail - tool`.
- * A failed call also shows the text that was returned to the model.
+ * Bounded tool call history in the MCP suite tab. Arguments and results are sanitized before display or export.
  */
 class ActivityLogPanel : JPanel(BorderLayout()) {
     private val rows = JPanel()
     private val scroll = JScrollPane()
+    private val expanded = mutableSetOf<Instant>()
     private var ready = false
 
-    private val onCalls: (List<ToolActivity.Call>) -> Unit = { calls ->
+    private val onCalls: (List<ToolActivity.Call>) -> Unit = { _ ->
         if (SwingUtilities.isEventDispatchThread()) {
-            render(calls)
+            render(ToolActivity.snapshot())
         } else {
-            SwingUtilities.invokeLater { render(calls) }
+            SwingUtilities.invokeLater { render(ToolActivity.snapshot()) }
         }
     }
 
@@ -39,17 +43,32 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
         isOpaque = false
         alignmentX = LEFT_ALIGNMENT
 
-        val heading = JPanel()
-        heading.layout = BoxLayout(heading, BoxLayout.Y_AXIS)
+        val heading = JPanel(BorderLayout())
         heading.isOpaque = false
-        heading.add(Design.createSectionLabel("Activity"))
-        heading.add(Box.createVerticalStrut(Design.Spacing.SM))
-        heading.add(JLabel("Newest first. Failures include the message sent to the LLM.").apply {
+        heading.add(Design.createSectionLabel("MCP Activity Log"), BorderLayout.WEST)
+        heading.add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, Design.Spacing.SM, 0)).apply {
+            isOpaque = false
+            add(JButton("Clear logs").apply {
+                addActionListener {
+                    expanded.clear()
+                    ToolActivity.clear()
+                }
+            })
+            add(JButton("Export logs").apply {
+                addActionListener { exportLogs() }
+            })
+        }, BorderLayout.EAST)
+        val subtitle = JLabel("Request and response text first; full tool communication below. Stored secrets are redacted.").apply {
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
-        })
-        heading.add(Box.createVerticalStrut(Design.Spacing.SM))
+            border = BorderFactory.createEmptyBorder(Design.Spacing.SM, 0, Design.Spacing.SM, 0)
+        }
+        val header = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(heading, BorderLayout.NORTH)
+            add(subtitle, BorderLayout.SOUTH)
+        }
 
         rows.layout = BoxLayout(rows, BoxLayout.Y_AXIS)
         rows.alignmentX = LEFT_ALIGNMENT
@@ -68,7 +87,7 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
             }
         })
 
-        add(heading, BorderLayout.NORTH)
+        add(header, BorderLayout.NORTH)
         add(scroll, BorderLayout.CENTER)
 
         ready = true
@@ -78,6 +97,23 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
 
     fun dispose() {
         ToolActivity.removeListener(onCalls)
+    }
+
+    private fun exportLogs() {
+        val chooser = JFileChooser().apply {
+            dialogTitle = "Export MCP activity log"
+            selectedFile = java.io.File("mcp-activity.jsonl")
+        }
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return
+        val path = chooser.selectedFile.toPath()
+        if (Files.exists(path) && JOptionPane.showConfirmDialog(
+                this, "Replace the selected file?", "Export MCP activity log", JOptionPane.YES_NO_OPTION
+            ) != JOptionPane.YES_OPTION) return
+        try {
+            Files.writeString(path, ToolActivity.exportJsonl(), StandardCharsets.UTF_8)
+        } catch (_: Exception) {
+            JOptionPane.showMessageDialog(this, "Could not export the activity log.", "Export failed", JOptionPane.ERROR_MESSAGE)
+        }
     }
 
     override fun updateUI() {
@@ -103,7 +139,12 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
                 alignmentX = LEFT_ALIGNMENT
             })
         } else {
-            calls.forEach { call -> rows.add(ActivityRow(call)) }
+            expanded.retainAll(calls.mapTo(mutableSetOf()) { it.timestamp })
+            calls.forEach { call ->
+                rows.add(ActivityRow(call, call.timestamp in expanded) { open ->
+                    if (open) expanded.add(call.timestamp) else expanded.remove(call.timestamp)
+                })
+            }
             rows.add(Box.createVerticalGlue())
         }
         rows.revalidate()
@@ -114,7 +155,7 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
     }
 }
 
-private class ActivityRow(call: ToolActivity.Call) : JPanel(BorderLayout()) {
+private class ActivityRow(call: ToolActivity.Call, open: Boolean, onOpenChanged: (Boolean) -> Unit) : JPanel(BorderLayout()) {
     init {
         isOpaque = false
         alignmentX = LEFT_ALIGNMENT
@@ -123,18 +164,35 @@ private class ActivityRow(call: ToolActivity.Call) : JPanel(BorderLayout()) {
             BorderFactory.createEmptyBorder(Design.Spacing.SM, Design.Spacing.MD, Design.Spacing.SM, Design.Spacing.MD)
         )
 
-        add(JLabel(call.line()).apply {
+        val line = JLabel(call.line()).apply {
             font = Design.Typography.labelLarge
             foreground = if (call.passed) Design.Colors.onSurface else Design.Colors.error
-        }, BorderLayout.NORTH)
+        }
+        val toggle = JButton(if (open) "Hide details" else "Details")
+        val summary = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(line, BorderLayout.CENTER)
+            add(toggle, BorderLayout.EAST)
+        }
+        add(summary, BorderLayout.NORTH)
 
-        val trace = call.failureMessage?.takeIf { it.isNotBlank() }
-        if (trace != null) {
-            add(WrappingText(trace).apply {
-                font = Design.Typography.bodyMedium
-                foreground = Design.Colors.error
-                border = BorderFactory.createEmptyBorder(Design.Spacing.SM, Design.Spacing.SM, 0, 0)
-            }, BorderLayout.CENTER)
+        val details = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            add(detailText("Request content", call.requestContent(), 110))
+            add(Box.createVerticalStrut(Design.Spacing.SM))
+            add(detailText("Response content", call.responseContent(), 130))
+            add(Box.createVerticalStrut(Design.Spacing.SM))
+            add(detailText("Full communication (redacted)", call.fullCommunication(), 230))
+            isVisible = open
+        }
+        add(details, BorderLayout.CENTER)
+        toggle.addActionListener {
+            details.isVisible = !details.isVisible
+            toggle.text = if (details.isVisible) "Hide details" else "Details"
+            onOpenChanged(details.isVisible)
+            revalidate()
+            repaint()
         }
     }
 
@@ -144,29 +202,22 @@ private class ActivityRow(call: ToolActivity.Call) : JPanel(BorderLayout()) {
     }
 }
 
-private class WrappingText(text: String) : JTextArea(text) {
-    init {
-        lineWrap = true
-        wrapStyleWord = true
-        columns = 24
+private fun detailText(label: String, text: String, height: Int): JPanel = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    alignmentX = Component.LEFT_ALIGNMENT
+    add(JLabel(label).apply {
+        font = Design.Typography.labelLarge
+        foreground = Design.Colors.onSurfaceVariant
+    }, BorderLayout.NORTH)
+    val area = JTextArea(text).apply {
+        font = java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12)
         isEditable = false
-        isOpaque = false
-        isFocusable = true
+        lineWrap = false
+        caretPosition = 0
     }
-
-    override fun getPreferredSize(): Dimension {
-        val width = parent?.width?.minus(insets.left + insets.right)?.takeIf { it > 40 }
-            ?: return super.getPreferredSize()
-        val root = (ui as? TextUI)?.getRootView(this) ?: return super.getPreferredSize()
-        root.setSize(width.toFloat(), Float.MAX_VALUE)
-        val height = root.getPreferredSpan(View.Y_AXIS).toInt() + insets.top + insets.bottom
-        return Dimension(width, height.coerceAtLeast(font.size + insets.top + insets.bottom))
-    }
-
-    override fun getMaximumSize(): Dimension = preferredSize
-
-    override fun addNotify() {
-        super.addNotify()
-        (parent as? Component)?.let { revalidate() }
-    }
+    add(JScrollPane(area).apply {
+        preferredSize = Dimension(300, height)
+        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
+        verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+    }, BorderLayout.CENTER)
 }

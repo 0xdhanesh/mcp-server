@@ -13,8 +13,8 @@ import javax.swing.JLabel
 class CreditLineTest {
 
     @Test
-    fun headerCreditsLinkedIn() {
-        val ui = ConfigUi(McpConfig(mockk<PersistedObject>(relaxed = true), mockk<Logging>(relaxed = true)), emptyList())
+    fun settingsCreditsLinkedIn() {
+        val ui = ConfigUi(McpConfig(mockk<PersistedObject>(relaxed = true), mockk<Logging>(relaxed = true)))
         try {
             val components = ArrayList<Component>()
             walk(ui.component, components)

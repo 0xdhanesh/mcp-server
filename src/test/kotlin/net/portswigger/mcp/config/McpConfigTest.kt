@@ -49,6 +49,17 @@ class McpConfigTest {
     }
 
     @Test
+    fun `MCP access key is generated once and rotates`() {
+        val first = config.accessKey()
+        assertTrue(first.length >= 40)
+        assertEquals(first, config.accessKey())
+        val rotated = config.rotateAccessKey()
+        assertNotEquals(first, rotated)
+        assertEquals(rotated, config.accessKey())
+        assertEquals("MCP must listen on 127.0.0.1 only", ConfigValidation.validateServerConfig("0.0.0.0", "9876"))
+    }
+
+    @Test
     fun `addAutoApproveTarget should add new target`() {
         val result = config.addAutoApproveTarget("example.com")
 
