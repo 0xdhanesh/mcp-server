@@ -18,6 +18,8 @@ import net.portswigger.mcp.tools.registerTools
 import net.portswigger.mcp.tools.CapturedHttpRequests
 import net.portswigger.mcp.security.VariableStore
 import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -39,6 +41,8 @@ class KtorServerManager(
                 server?.stop(1000, 5000)
                 server = null
 
+                require(config.host == "127.0.0.1") { "MCP must listen on 127.0.0.1 only" }
+
                 val mcpServer = Server(
                     serverInfo = Implementation("burp-suite", ExtensionVersion.VERSION), options = ServerOptions(
                         capabilities = ServerCapabilities(
@@ -58,6 +62,7 @@ class KtorServerManager(
                         allowHeader(HttpHeaders.ContentType)
                         allowHeader(HttpHeaders.Accept)
                         allowHeader("Last-Event-ID")
+                        allowHeader("X-Burp-Mcp-Key")
 
                         allowCredentials = false
                         allowNonSimpleContentTypes = true
@@ -92,6 +97,12 @@ class KtorServerManager(
                             return@intercept
                         }
 
+                        if (config.requireMcpAccessKey && !validAccessKey(
+                                config.accessKey(), call.request.header("X-Burp-Mcp-Key"))) {
+                            call.respond(HttpStatusCode.Unauthorized)
+                            return@intercept
+                        }
+
                         call.response.header("X-Frame-Options", "DENY")
                         call.response.header("X-Content-Type-Options", "nosniff")
                         call.response.header("Referrer-Policy", "same-origin")
@@ -116,6 +127,11 @@ class KtorServerManager(
             }
         }
     }
+
+    internal fun validAccessKey(expected: String, supplied: String?): Boolean =
+        supplied != null && MessageDigest.isEqual(
+            expected.toByteArray(StandardCharsets.UTF_8), supplied.toByteArray(StandardCharsets.UTF_8)
+        )
 
     override fun stop(callback: (ServerState) -> Unit) {
         callback(ServerState.Stopping)

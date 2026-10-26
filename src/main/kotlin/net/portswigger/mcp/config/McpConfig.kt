@@ -5,6 +5,8 @@ import burp.api.montoya.persistence.PersistedObject
 import kotlinx.serialization.json.Json
 import net.portswigger.mcp.security.VariableStore
 import java.lang.ref.WeakReference
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -19,6 +21,23 @@ class McpConfig(storage: PersistedObject, private val logging: Logging) {
     var port by storage.int(9876)
     var requireHttpRequestApproval by storage.boolean(true)
     var requireDataAccessApproval by storage.boolean(true)
+    var requireMcpAccessKey by storage.boolean(true)
+    private var mcpAccessKey by storage.string("")
+
+    @Synchronized
+    fun accessKey(): String {
+        if (mcpAccessKey.isBlank()) rotateAccessKey()
+        return mcpAccessKey
+    }
+
+    @Synchronized
+    fun rotateAccessKey(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        val key = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        mcpAccessKey = key
+        return key
+    }
 
     private var _alwaysAllowHttpHistory by storage.boolean(false)
     var alwaysAllowHttpHistory: Boolean

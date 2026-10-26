@@ -6,8 +6,8 @@ object ConfigValidation {
         val trimmedHost = host.trim()
         val port = portText.trim().toIntOrNull()
 
-        if (trimmedHost.isBlank() || !trimmedHost.matches(Regex("^[a-zA-Z0-9.-]+$"))) {
-            return "Host must be a non-empty alphanumeric string"
+        if (trimmedHost != "127.0.0.1") {
+            return "MCP must listen on 127.0.0.1 only"
         }
 
         if (port == null) {

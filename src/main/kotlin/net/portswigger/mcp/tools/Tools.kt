@@ -782,15 +782,20 @@ fun Server.registerTools(
     mcpTool<ListExtensionTools>(
         "Lists tools exposed by loaded extensions. " +
             "Montoya cannot enumerate another extension's API, so this probes command headers that extensions spoof. " +
-            "ATOR answers X-ATOR-Command: status and reports which Burp tools it updates, plus commands status, refresh, export, and import. " +
-            "Other extensions can answer X-Burp-Mcp-Discover: tools with a JSON body that contains a tools array. " +
-            "Pass header and command to probe one extension instead of the built-in probes."
+            "The default probe uses X-Burp-Mcp-Discover: tools and returns metadata without response bodies. " +
+            "Pass a safe header and command to probe one extension instead: X-Burp-Mcp-Discover: tools or X-ATOR-Command: status. " +
+            "ATOR responses are always summarized without their body."
     ) {
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission("127.0.0.1", 1, config, "extension tool probe", api)
         }
         if (!allowed) return@mcpTool "Extension probe denied by Burp Suite"
 
+        if (!header.isNullOrBlank() || !command.isNullOrBlank()) {
+            if (!isSafeExtensionProbe(header.orEmpty(), command.orEmpty())) {
+                return@mcpTool "Discovery accepts only X-Burp-Mcp-Discover: tools or X-ATOR-Command: status."
+            }
+        }
         val names = loadedExtensionNames(suiteFrameOf(api))
         val probes = if (!header.isNullOrBlank() && !command.isNullOrBlank()) {
             listOf(ExtensionCommand(header, header, command))
@@ -815,7 +820,8 @@ fun Server.registerTools(
                         body.orEmpty(),
                         targetHostname ?: "127.0.0.1",
                         targetPort ?: 1,
-                        usesHttps == true
+                        usesHttps == true,
+                        includeBody = false
                     )
                 )
                 appendLine()

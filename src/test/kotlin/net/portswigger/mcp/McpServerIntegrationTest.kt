@@ -13,10 +13,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.ServerSocket
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class McpServerIntegrationTest {
+    private var accessKeyRequired = false
     private val client = TestSseMcpClient()
     private val api = mockk<MontoyaApi>(relaxed = true)
     private val serverManager = KtorServerManager(api)
@@ -27,9 +30,14 @@ class McpServerIntegrationTest {
 
     init {
         every { persistedObject.getBoolean(any()) } returns true
+        every { persistedObject.getBoolean("requireMcpAccessKey") } answers { accessKeyRequired }
         every { persistedObject.getString(any()) } returns "127.0.0.1"
+        every { persistedObject.getString("mcpAccessKey") } returns "test-access-key"
         every { persistedObject.getInteger("port") } returns testPort
         every { persistedObject.setBoolean(any(), any()) } returns Unit
+        every { persistedObject.setBoolean("requireMcpAccessKey", any()) } answers {
+            accessKeyRequired = secondArg<Boolean>()
+        }
         every { persistedObject.setString(any(), any()) } returns Unit
         every { persistedObject.setInteger(any(), any()) } returns Unit
     }
@@ -71,6 +79,31 @@ class McpServerIntegrationTest {
         }
         serverManager.stop {}
         ToolActivity.clear()
+    }
+
+    @Test
+    fun `MCP listener rejects requests without its access key`() {
+        accessKeyRequired = true
+        val url = URL("http://127.0.0.1:$testPort")
+        val missing = url.openConnection() as HttpURLConnection
+        missing.connectTimeout = 3000
+        missing.readTimeout = 3000
+        assertEquals(401, missing.responseCode)
+        missing.disconnect()
+
+        val wrong = url.openConnection() as HttpURLConnection
+        wrong.setRequestProperty("X-Burp-Mcp-Key", "wrong-key")
+        wrong.connectTimeout = 3000
+        wrong.readTimeout = 3000
+        assertEquals(401, wrong.responseCode)
+        wrong.disconnect()
+
+        val valid = url.openConnection() as HttpURLConnection
+        valid.setRequestProperty("X-Burp-Mcp-Key", "test-access-key")
+        valid.connectTimeout = 3000
+        valid.readTimeout = 3000
+        assertEquals(200, valid.responseCode)
+        valid.disconnect()
     }
 
     @Test

@@ -58,7 +58,7 @@ class ActivityLogPanel : JPanel(BorderLayout()) {
                 addActionListener { exportLogs() }
             })
         }, BorderLayout.EAST)
-        val subtitle = JLabel("Tool inputs and outputs. Stored secrets are redacted.").apply {
+        val subtitle = JLabel("Request and response text first; full tool communication below. Stored secrets are redacted.").apply {
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
@@ -179,9 +179,11 @@ private class ActivityRow(call: ToolActivity.Call, open: Boolean, onOpenChanged:
         val details = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            add(detailText("Input", call.input))
+            add(detailText("Request content", call.requestContent(), 110))
             add(Box.createVerticalStrut(Design.Spacing.SM))
-            add(detailText("Output", call.output))
+            add(detailText("Response content", call.responseContent(), 130))
+            add(Box.createVerticalStrut(Design.Spacing.SM))
+            add(detailText("Full communication (redacted)", call.fullCommunication(), 230))
             isVisible = open
         }
         add(details, BorderLayout.CENTER)
@@ -200,7 +202,7 @@ private class ActivityRow(call: ToolActivity.Call, open: Boolean, onOpenChanged:
     }
 }
 
-private fun detailText(label: String, text: String): JPanel = JPanel(BorderLayout()).apply {
+private fun detailText(label: String, text: String, height: Int): JPanel = JPanel(BorderLayout()).apply {
     isOpaque = false
     alignmentX = Component.LEFT_ALIGNMENT
     add(JLabel(label).apply {
@@ -214,7 +216,7 @@ private fun detailText(label: String, text: String): JPanel = JPanel(BorderLayou
         caretPosition = 0
     }
     add(JScrollPane(area).apply {
-        preferredSize = Dimension(300, 150)
+        preferredSize = Dimension(300, height)
         horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
         verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
     }, BorderLayout.CENTER)

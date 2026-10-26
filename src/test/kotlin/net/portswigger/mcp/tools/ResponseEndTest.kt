@@ -86,6 +86,20 @@ class ResponseEndTest {
     }
 
     @Test
+    fun `extension discovery withholds credential values`() {
+        val raw = """HTTP/1.1 200 OK\r\n\r\n{"extension":"ATOR","extractions":[{"name":"session","value":"private-token"}]}"""
+            .replace("\\r", "\r").replace("\\n", "\n")
+        val ator = summarizeExtensionResponse("X-ATOR-Command", "status", raw)
+        val discovery = summarizeExtensionResponse("X-Burp-Mcp-Discover", "tools", raw, includeBody = false)
+        assertTrue(ator.contains("Extension: ATOR"))
+        assertFalse(ator.contains("private-token"))
+        assertFalse(discovery.contains("private-token"))
+        assertTrue(KNOWN_EXTENSION_PROBES.none { it.header == "X-ATOR-Command" })
+        assertTrue(isSafeExtensionProbe("X-Burp-Mcp-Discover", "tools"))
+        assertFalse(isSafeExtensionProbe("X-ATOR-Command", "refresh"))
+    }
+
+    @Test
     fun `http mode names used by repeater are accepted`() {
         assertEquals(burp.api.montoya.http.HttpMode.HTTP_2, parseHttpMode("HTTP/2"))
         assertEquals(burp.api.montoya.http.HttpMode.HTTP_1, parseHttpMode("h1"))

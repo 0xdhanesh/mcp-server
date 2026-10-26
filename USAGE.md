@@ -4,7 +4,7 @@ This guide covers the **Token Request** section in Burp's **MCP** tab. It saves 
 
 ## 1. Load the extension
 
-Load `build/libs/burp-mcp-all-v3.0.0.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
+Load `build/libs/burp-mcp-all-v3.0.6.jar` in **Burp > Extensions**. If an older copy is already loaded, reload the extension so the updated MCP tab appears. Open **MCP > Token Request**.
 
 ## 2. Enter the token request
 
@@ -32,14 +32,15 @@ Choose **HTTP** under **Input mode: CURL / raw HTTP** and paste:
 POST /token HTTP/1.1
 Host: 127.0.0.1:5000
 Content-Type: application/json
-Content-Length: 0
 
 {"username":"{{username}}","password":"{{password}}"}
 ```
 
 ![Raw HTTP input example](assets/raw-http-example.png)
 
-Select **Use HTTPS for raw HTTP requests** for a TLS endpoint. The extension recalculates an existing `Content-Length` when it expands the placeholders, so the template's `0` is safe to leave in place. Older saved HTTP-fields profiles load as CURL commands in the new editor.
+Select **Use HTTPS for raw HTTP requests** for a TLS endpoint. Omit `Content-Length` from the raw template. The extension adds the UTF-8 byte length after it expands the placeholders, or recalculates a numeric length already in the template. Older saved HTTP-fields profiles load as CURL commands in the new editor.
+
+Keep JSON field names exactly as the token issuer expects. The handle names may differ: `{"username":"{{usrname}}","password":"{{pwd}}"}` is valid when `usrname` and `pwd` are the memory-only input variable names for that role. Changing the JSON keys to `usrname` and `pwd` would send different fields to the issuer.
 
 ## 3. Set the extraction and save
 
@@ -48,6 +49,8 @@ Set **Stored variable name** to `session`. Select **JSONPath** under **Extract t
 Leave **Token use host** blank when the token will be sent to the same host as the login request. If the token endpoint and API differ, enter the API host there, for example `api.example.test`. Enter a host name only, without a scheme, port, or path.
 
 The saved request persists in Burp extension data. It cannot contain literal credential values in its body, query, or credential headers. Standard `grant_type` values such as `password` may be literal.
+
+The **Configured token request and roles** section shows the last saved method, endpoint, Content-Type, JSON body keys and their handle bindings, plus each role's stored and missing input handle names. It also shows whether a session handle exists at the token-use host and whether required inputs were stored at another host. Click **Refresh configured items** after an MCP tool changes session variables. This view never displays stored values. `None (ready to request)` means the required handles exist; it does not prove the issuer will accept the username and password. If the issuer returns 401, compare the displayed JSON keys and handle bindings with the issuer contract, then re-enter that role's values from the private fixture.
 
 ## 4. Store the input values for each role
 
@@ -113,3 +116,7 @@ For a raw request with a relative path on a nonstandard HTTP port, set `"usesHtt
 | MCP Activity Log says **No tool calls yet** | Saving the form is a Burp UI action. The log receives entries after an MCP tool call such as `acquire_configured_session_var`. |
 
 Memory-only values are cleared when the extension unloads or the Burp project closes. Re-enter them after reloading the extension. For a login request already captured in Burp Proxy history, `acquire_session_var` with a `historyId` can replay that request without putting its credentials into MCP arguments.
+
+## Activity Log display
+
+Expand a tool call under **MCP > Activity Log** to see **Request content** (the submitted `request` or `content` field without the JSON envelope), **Response content** (the text content returned to the MCP client), and **Full communication (redacted)** (the complete tool input and result JSON). The submitted request may contain `{{session}}`; use Burp Logger to inspect the effective HTTP request. All three views and JSONL exports retain the extension's secret redaction.

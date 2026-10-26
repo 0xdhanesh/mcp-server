@@ -5,12 +5,20 @@
 <p align="center">
   <a href="https://github.com/0xdhanesh/mcp-server/stargazers"><img src="https://img.shields.io/github/stars/0xdhanesh/mcp-server?label=stars" alt="GitHub stars"></a>
   <a href="https://github.com/0xdhanesh/mcp-server/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/0xdhanesh/mcp-server/ci.yml?branch=dev%2Ftool-enhancement2&amp;event=push&amp;label=tests" alt="Test status"></a>
-  <a href="https://github.com/0xdhanesh/mcp-server/releases/latest"><img src="https://img.shields.io/badge/version-v3.0.0-blue" alt="Version: v3.0.0"></a>
+  <img src="https://img.shields.io/badge/local%20source-v3.0.6-blue" alt="Local source version: v3.0.6">
 </p>
 
 # Burp Suite MCP Server
 
 Burp Suite MCP Server lets AI assistants work with Burp Suite during web application testing.
+
+## Local connection security
+
+The server listens on `127.0.0.1` only and requires an `X-Burp-Mcp-Key` header by default. In Burp's **MCP > Server Configuration**, click **Copy MCP access key** and add it to the local MCP client's SSE headers. For Claude Code, use `claude mcp add --transport sse -H "X-Burp-Mcp-Key: <copied key>" burp http://127.0.0.1:9876`, replacing the placeholder locally. Keep the key out of chat, reports, and repositories. Rotating the key disconnects existing clients until their header is updated. Keep HTTP request and project-data approval enabled for sensitive work.
+
+Default extension discovery probes `X-Burp-Mcp-Discover: tools` and withholds raw response bodies. ATOR must be probed explicitly; its response body is withheld even when a caller requests it, because older ATOR builds can return live extracted tokens. Use Burp UI for sensitive ATOR exports.
+
+Repeater sends now pass the MCP HTTP approval check before a UI click as well as before an HTTP API fallback. Common credential headers, bearer values, JWTs, and named secret fields are redacted from MCP tool output before delivery to clients. This pattern filter does not classify arbitrary customer data; use synthetic fixtures and avoid raw history readers when the client must not receive sensitive content. Host auto-approval covers every method and path on that host, so clear those entries for engagements that require per-request review.
 
 ## Features
 

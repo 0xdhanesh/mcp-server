@@ -65,6 +65,7 @@ class ToolsKtTest {
             every { getBoolean("configEditingTooling") } returns true
             every { getBoolean("requireHttpRequestApproval") } returns false
             every { getBoolean("requireDataAccessApproval") } returns false
+            every { getBoolean("requireMcpAccessKey") } returns false
             every { getBoolean("_alwaysAllowHttpHistory") } returns false
             every { getBoolean("_alwaysAllowCapturedRequests") } returns false
             every { getBoolean("_alwaysAllowWebSocketHistory") } returns false

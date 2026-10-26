@@ -99,6 +99,20 @@ internal fun issueRepeaterTab(
         RepeaterUi.trySetNotes(frame, tab.name, tab.notes, expectedRequest = tab.request.toString())
     }
 
+    // Check permission before the UI click as well as before an HTTP API fallback.
+    // The UI path is a real send and must not bypass Burp's MCP approval setting.
+    val preparedService = tab.request.httpService()
+    val preparedContent = tab.request.toString()
+    val preparedAllowed = runBlocking {
+        HttpRequestSecurity.checkHttpRequestPermission(
+            preparedService.host(), preparedService.port(), config, preparedContent, api
+        )
+    }
+    if (!preparedAllowed) {
+        api.logging().logToOutput("MCP Repeater send denied: ${preparedService.host()}:${preparedService.port()}")
+        return "Send HTTP request denied by Burp Suite"
+    }
+
     val explicitHttp = issueFrom?.trim()?.let { it.equals("http", true) || it.equals("api", true) } == true
     var sendMiss: String? = null
     when (val ui = RepeaterUi.trySend(frame, tab.name, expectedRequest = tab.request.toString())) {
@@ -136,7 +150,9 @@ internal fun issueRepeaterTab(
     }
 
     val service = tab.request.httpService()
-    val allowed = runBlocking {
+    val allowed = if (tab.request.toString() == preparedContent &&
+        service.host() == preparedService.host() && service.port() == preparedService.port()
+    ) true else runBlocking {
         HttpRequestSecurity.checkHttpRequestPermission(
             service.host(), service.port(), config, tab.request.toString(), api
         )

@@ -5,6 +5,8 @@ import burp.api.montoya.persistence.PersistedObject
 import io.mockk.mockk
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import net.portswigger.mcp.tools.ToolActivity
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -17,6 +19,7 @@ import javax.swing.JLabel
 import javax.swing.JScrollPane
 import javax.swing.JSeparator
 import javax.swing.JTabbedPane
+import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
 class ConfigUiTabsTest {
@@ -62,6 +65,40 @@ class ConfigUiTabsTest {
                 assertTrue(ToolActivity.snapshot().isEmpty())
                 assertEquals("", ToolActivity.exportJsonl())
                 assertTrue(walk(ui.component).filterIsInstance<JLabel>().any { it.text == "No tool calls yet." })
+            } finally {
+                ui.cleanup()
+                ToolActivity.clear()
+            }
+        }
+    }
+
+    @Test
+    fun `activity details show request and response content plus full communication`() {
+        ToolActivity.clear()
+        val request = "curl http://127.0.0.1:18080/api/whoami -H 'Authorization: Bearer {{session}}'"
+        val response = "status=200\n{\"subject\":\"{{usrname}}\"}"
+        ToolActivity.record("send_with_vars", CallToolResult(content = listOf(TextContent(response))),
+            JsonObject(mapOf(
+                "request" to JsonPrimitive(request),
+                "identity" to JsonPrimitive("alice"),
+                "host" to JsonPrimitive("127.0.0.1")
+            )))
+        SwingUtilities.invokeAndWait {
+            val ui = newUi()
+            try {
+                val tabs = walk(ui.component).filterIsInstance<JTabbedPane>().single()
+                val activity = tabs.getComponentAt(tabs.indexOfTab("Activity Log"))
+                walk(activity).filterIsInstance<JButton>().single { it.text == "Details" }.doClick()
+                val labels = walk(activity).filterIsInstance<JLabel>().map { it.text }
+                assertTrue("Request content" in labels)
+                assertTrue("Response content" in labels)
+                assertTrue("Full communication (redacted)" in labels)
+                val areas = walk(activity).filterIsInstance<JTextArea>()
+                assertEquals(request, areas[0].text)
+                assertEquals(response, areas[1].text)
+                assertTrue(areas[2].text.contains("\"request\""))
+                assertTrue(areas[2].text.contains("\"content\""))
+                assertTrue(areas[2].text.contains("→"))
             } finally {
                 ui.cleanup()
                 ToolActivity.clear()

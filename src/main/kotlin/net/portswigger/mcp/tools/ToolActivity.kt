@@ -30,6 +30,9 @@ internal object ToolActivity {
         val output: String
     ) {
         fun line(): String = formatToolActivityLine(at, passed, toolName)
+        fun requestContent(): String = activityRequestContent(input)
+        fun responseContent(): String = activityResponseContent(output)
+        fun fullCommunication(): String = "$input\n\n→\n\n$output"
     }
 
     private val calls = ArrayDeque<Call>()
@@ -132,6 +135,26 @@ private data class ExportedCall(
 private val ACTIVITY_JSON = Json { prettyPrint = true }
 private val EXPORT_JSON = Json
 
+/** These views read only the already-sanitized JSON retained by [ToolActivity]. */
+internal fun activityRequestContent(input: String): String {
+    val arguments = runCatching { Json.parseToJsonElement(input) }.getOrNull() as? JsonObject
+        ?: return "(No request content available.)"
+    for (name in listOf("request", "content", "rawRequest", "httpRequest", "curl")) {
+        val value = arguments[name] as? JsonPrimitive ?: continue
+        if (value.isString) return value.content.ifEmpty { "(Empty request content.)" }
+    }
+    return "(No inline request content; see Full communication.)"
+}
+
+internal fun activityResponseContent(output: String): String {
+    val result = runCatching { Json.parseToJsonElement(output) }.getOrNull() as? JsonObject
+        ?: return "(No response content available.)"
+    val blocks = result["content"] as? JsonArray ?: return "(No text response content; see Full communication.)"
+    val text = blocks.mapNotNull { (it as? JsonObject)?.get("text") as? JsonPrimitive }
+        .map { it.content }
+    return if (text.isEmpty()) "(No text response content; see Full communication.)" else text.joinToString("\n")
+}
+
 internal object McpLogSanitizer {
     private val sensitiveKeys = setOf(
         "password", "passwd", "secret", "secretkey", "clientsecret", "token", "accesstoken",
@@ -194,10 +217,10 @@ internal object ToolResultRedaction {
     @Volatile var store: VariableStore? = null
 
     fun apply(result: CallToolResult, active: VariableStore? = store): CallToolResult {
-        active ?: return result
         return CallToolResult(
             content = result.content.map { block ->
-                TextContent(if (block is TextContent) active.redact(block.text.orEmpty()) else "<non-text content withheld>")
+                TextContent(if (block is TextContent) McpLogSanitizer.text(block.text.orEmpty(), active)
+                    else "<non-text content withheld>")
             },
             isError = result.isError
         )

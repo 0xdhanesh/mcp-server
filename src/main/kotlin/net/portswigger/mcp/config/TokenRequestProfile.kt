@@ -182,6 +182,11 @@ private fun requireSafeTemplate(raw: String) {
     if (body.isBlank()) return
     if (HANDLE.matches(body.trim())) return
     val json = runCatching { Json.parseToJsonElement(body) }.getOrNull()
+    val jsonContentType = header.lineSequence().drop(1).firstOrNull { it.startsWith("Content-Type:", true) }
+        ?.substringAfter(':')?.substringBefore(';')?.trim()
+    require(jsonContentType == null || !jsonContentType.equals("application/json", true) || json != null) {
+        "Invalid JSON body. Quote each {{name}} handle as a JSON string."
+    }
     if (json != null) {
         requireSafeJson(json)
         return

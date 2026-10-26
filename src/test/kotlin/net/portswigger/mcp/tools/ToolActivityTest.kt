@@ -127,6 +127,9 @@ class ToolActivityTest {
         ToolActivity.snapshot().forEach { call ->
             assertFalse(call.input.contains(token))
             assertFalse(call.output.contains(token))
+            assertFalse(call.requestContent().contains(token))
+            assertFalse(call.responseContent().contains(token))
+            assertFalse(call.fullCommunication().contains(token))
         }
         val export = ToolActivity.exportJsonl()
         assertFalse(export.contains(token))
@@ -145,5 +148,20 @@ class ToolActivityTest {
         ToolActivity.record("acquire_session_var", CallToolResult(content = listOf(TextContent("Stored {{session}}"))), input)
         assertFalse(ToolActivity.snapshot().single().input.contains(password))
         assertFalse(ToolActivity.exportJsonl().contains(password))
+    }
+
+    @Test
+    fun `unstored response credentials are redacted before the MCP result leaves the server`() {
+        val token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjYW5hcnkifQ.sig12345"
+        val result = toolResult("send_repeater_request") {
+            CallToolResult(content = listOf(TextContent(
+                "HTTP/1.1 200 OK\r\nSet-Cookie: session=private-cookie\r\n\r\n" +
+                    "{\"access_token\":\"$token\"}"
+            )))
+        }
+        val visible = llmTrace(result.content)
+        assertFalse(visible.contains("private-cookie"))
+        assertFalse(visible.contains(token))
+        assertTrue(visible.contains("<redacted>"))
     }
 }

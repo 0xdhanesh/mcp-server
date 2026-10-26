@@ -1,5 +1,8 @@
 package net.portswigger.mcp.config.components
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import net.portswigger.mcp.config.Design
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.config.RawHttpScheme
@@ -23,16 +26,19 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JPasswordField
 import javax.swing.JScrollPane
+import javax.swing.JTable
 import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
+import javax.swing.table.DefaultTableModel
 
 /** Burp-persisted token request template. Secret values are supplied from VariableStore at send time. */
 class TokenRequestPanel(private val config: McpConfig, private val store: VariableStore) : JPanel() {
     private val mode = JComboBox(arrayOf("CURL", "HTTP"))
     private val template = PlaceholderTextArea(9, 36)
     private val useHttps = javax.swing.JCheckBox("Use HTTPS for raw HTTP requests")
+    private val contentLengthHint = JLabel("Raw HTTP: omit Content-Length; MCP calculates it after inserting memory values.")
     private val variableName = JTextField("session")
     private val targetHost = JTextField()
     private val defaultIdentity = JTextField()
@@ -46,6 +52,12 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     private val status = JLabel(" ")
     private val readinessStatus = JLabel(" ")
     private val readinessPanel = JPanel()
+    private val configuredSummary = JTextArea(6, 36)
+    private val configuredRoles = object : DefaultTableModel(
+        arrayOf("Role", "Stored at issuer", "Missing at issuer", "Session at use host", "Other input hosts"), 0
+    ) {
+        override fun isCellEditable(row: Int, column: Int) = false
+    }
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -66,6 +78,12 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         add(Box.createVerticalStrut(Design.Spacing.MD))
         add(field("Input mode: CURL / raw HTTP", mode))
         add(field("Curl command or raw HTTP/1.x request", textArea(template, 205, 620)))
+        contentLengthHint.apply {
+            font = Design.Typography.labelMedium
+            foreground = Design.Colors.onSurfaceVariant
+            alignmentX = LEFT_ALIGNMENT
+        }
+        add(contentLengthHint)
         useHttps.isOpaque = false
         useHttps.alignmentX = LEFT_ALIGNMENT
         add(useHttps)
@@ -89,6 +107,41 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         status.font = Design.Typography.bodyMedium
         status.foreground = Design.Colors.onSurfaceVariant
         add(status)
+
+        add(Box.createVerticalStrut(Design.Spacing.MD))
+        add(Design.createSectionLabel("Configured token request and roles"))
+        add(JLabel("Shows the last saved request. Values stay hidden; Ready does not mean the issuer accepts them.").apply {
+            font = Design.Typography.labelMedium
+            foreground = Design.Colors.onSurfaceVariant
+            alignmentX = LEFT_ALIGNMENT
+        })
+        configuredSummary.apply {
+            isEditable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            font = Design.Typography.bodyMedium
+            foreground = Design.Colors.onSurface
+            alignmentX = LEFT_ALIGNMENT
+        }
+        add(JScrollPane(configuredSummary).apply {
+            preferredSize = Dimension(900, 120)
+            alignmentX = LEFT_ALIGNMENT
+        })
+        add(JScrollPane(JTable(configuredRoles).apply {
+            fillsViewportHeight = true
+            autoResizeMode = JTable.AUTO_RESIZE_OFF
+            listOf(100, 220, 210, 150, 180).forEachIndexed { index, width ->
+                columnModel.getColumn(index).preferredWidth = width
+            }
+        }).apply {
+            preferredSize = Dimension(900, 120)
+            alignmentX = LEFT_ALIGNMENT
+        })
+        add(JButton("Refresh configured items").apply {
+            alignmentX = LEFT_ALIGNMENT
+            addActionListener { refreshConfiguredItems() }
+        })
 
         add(Box.createVerticalStrut(Design.Spacing.MD))
         add(Design.createSectionLabel("Memory-only request values"))
@@ -132,6 +185,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
 
         config.tokenRequestProfile()?.let(::load)
         showMode()
+        refreshConfiguredItems()
     }
 
     private fun field(label: String, component: JComponent): JPanel = JPanel(BorderLayout(0, Design.Spacing.SM / 2)).apply {
@@ -157,6 +211,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
     private fun showMode() {
         template.placeholder = if (mode.selectedIndex == 0) CURL_PLACEHOLDER else HTTP_PLACEHOLDER
         template.toolTipText = template.placeholder
+        contentLengthHint.isVisible = mode.selectedIndex == 1
         useHttps.isVisible = mode.selectedIndex == 1
         revalidate()
         updateHandleHints()
@@ -201,7 +256,8 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         try {
             config.saveTokenRequestProfile(current(), store)
             status.foreground = Design.Colors.onSurfaceVariant
-            // status.text = "Token request saved in Burp extension data."
+            status.text = "Token request saved in Burp extension data."
+            refreshConfiguredItems()
             refreshReadiness()
         } catch (error: Exception) {
             status.foreground = Design.Colors.error
@@ -211,6 +267,9 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
                 "Body parameter values must use variable handles before saving." -> error.message!!
                 "Credential headers must use stored variable handles only." -> error.message!!
                 "Request format does not match the selected input mode." -> error.message!!
+                "Invalid JSON body. Quote each {{name}} handle as a JSON string." -> error.message!!
+                "Host header needs a hostname and, for a nonstandard port, a numeric port." -> error.message!!
+                "Use one numeric Content-Length header or omit it." -> error.message!!
                 else -> "Could not save. Check syntax and replace credential values with {{name}} handles."
             }
         }
@@ -224,6 +283,7 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
             inputValue.text = ""
             status.foreground = Design.Colors.onSurfaceVariant
             status.text = "Stored $handle in memory."
+            refreshConfiguredItems()
             refreshReadiness()
         } catch (error: Exception) {
             status.foreground = Design.Colors.error
@@ -249,7 +309,83 @@ class TokenRequestPanel(private val config: McpConfig, private val store: Variab
         inputValue.text = ""
         status.foreground = Design.Colors.onSurfaceVariant
         status.text = "Saved token request cleared."
+        refreshConfiguredItems()
         refreshReadiness()
+    }
+
+    /** Shows metadata only. Never expands or reads a stored value. */
+    private fun refreshConfiguredItems() {
+        configuredRoles.rowCount = 0
+        val profile = config.tokenRequestProfile()
+        if (profile == null) {
+            configuredSummary.text = "No token request is saved. Memory-only values may still exist; save a request to compare role bindings."
+            return
+        }
+        val snapshot = runCatching {
+            val parsed = RequestTemplate.parse(profile.requestTemplate())
+            val readiness = profile.readiness(store)
+            val names = store.listNames()
+            Triple(parsed, readiness, names)
+        }.getOrElse {
+            configuredSummary.text = "The saved request could not be parsed. Edit it and save again."
+            return
+        }
+        val (parsed, readiness, names) = snapshot
+        val requestLine = parsed.raw.lineSequence().first().trimEnd('\r').split(' ', limit = 3)
+        val scheme = if (parsed.service.secure()) "https" else "http"
+        val endpoint = "$scheme://${parsed.host}:${parsed.service.port()}${requestLine[1]}"
+        val contentType = parsed.raw.lineSequence().drop(1).takeWhile(String::isNotBlank)
+            .firstOrNull { it.startsWith("Content-Type:", true) }
+            ?.substringAfter(':')?.trim() ?: "(not set)"
+        configuredSummary.text = "Saved request: ${requestLine[0]} $endpoint\n" +
+            "Content-Type: $contentType | Token: {{${profile.variableName}}} for ${readiness.tokenUseHost} | " +
+            "Extract: ${profile.selectorMode} ${profile.selector}\n" +
+            "Body fields: ${bodyBindings(parsed.raw)}\n" +
+            "Required inputs at ${readiness.requestHost}: ${displayHandles(readiness.requiredNames)}\n" +
+            "Default automatic retry role: ${profile.defaultIdentity.ifBlank { "(none)" }}"
+
+        val roles = (names.filter {
+            it.host == readiness.requestHost || it.name in readiness.requiredNames ||
+                (it.name == profile.variableName && it.host == readiness.tokenUseHost)
+        }.map { it.identity } + profile.defaultIdentity).filter(String::isNotBlank).distinct().sorted()
+        roles.forEach { role ->
+            val issuerNames = names.filter { it.identity == role && it.host == readiness.requestHost }
+                .map { it.name }.toSet()
+            val missing = readiness.missingFor(role, store)
+            val session = names.any {
+                it.identity == role && it.host == readiness.tokenUseHost && it.name == profile.variableName
+            }
+            val otherHosts = names.filter {
+                it.identity == role && it.name in readiness.requiredNames && it.host != readiness.requestHost
+            }.map { it.host }.distinct().sorted()
+            configuredRoles.addRow(arrayOf(
+                role,
+                displayHandles(issuerNames),
+                if (missing.isEmpty()) "None (ready to request)" else displayHandles(missing),
+                if (session) "Stored" else "Not stored",
+                if (otherHosts.isEmpty()) "None" else otherHosts.joinToString(", ")
+            ))
+        }
+    }
+
+    private fun displayHandles(names: Collection<String>): String =
+        if (names.isEmpty()) "None" else names.sorted().joinToString(", ") { "{{$it}}" }
+
+    private fun bodyBindings(raw: String): String {
+        val normalized = raw.replace("\r\n", "\n")
+        val body = normalized.substringAfter("\n\n", "")
+        if (body.isBlank()) return "None"
+        val json = runCatching { Json.parseToJsonElement(body) }.getOrNull() as? JsonObject
+        if (json != null) return json.entries.joinToString(", ") { (key, value) ->
+            val handle = (value as? JsonPrimitive)?.takeIf { it.isString && HANDLE.matches(it.content) }?.content
+            "$key -> ${handle ?: "(fixed or nested)"}"
+        }
+        if (body.contains('=')) return body.split('&').joinToString(", ") { part ->
+            val key = part.substringBefore('=')
+            val value = part.substringAfter('=', "")
+            "$key -> ${if (HANDLE.matches(value)) value else "(fixed)"}"
+        }
+        return if (HANDLE.matches(body.trim())) body.trim() else "Present; inspect the saved template"
     }
 
     /** Shows whether the saved token request can run on its own after a 401. Only updates once the result is shown. */
@@ -332,26 +468,32 @@ private val CURL_PLACEHOLDER = """curl -X POST http://localhost/token \
 private val HTTP_PLACEHOLDER = """POST /token HTTP/1.1
 Host: 127.0.0.1:5000
 Content-Type: application/x-www-form-urlencoded
-Content-Length: 0
 
 grant_type=client_credentials&client_id={{cid}}&client_password={{cpass}}"""
 
 /** Paints [placeholder] in a muted color while the field is empty. */
 private fun paintPlaceholder(g: java.awt.Graphics, field: JTextField, placeholder: String) {
     if (field.document.length > 0) return
-    val g2 = g.create() as java.awt.Graphics2D
+    val g2 = placeholderGraphics(g)
     try {
-        g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
         g2.font = field.font
-        g2.color = Design.Colors.onSurfaceVariant
         val insets = field.insets
         val metrics = g2.fontMetrics
         val y = insets.top + (field.height - insets.top - insets.bottom - metrics.height) / 2 + metrics.ascent
-        g2.drawString(placeholder, insets.left, y)
+        g2.drawString(placeholder, insets.left + 2, y)
     } finally {
         g2.dispose()
     }
 }
+
+private fun placeholderGraphics(g: java.awt.Graphics): java.awt.Graphics2D =
+    (g.create() as java.awt.Graphics2D).apply {
+        setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+        setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        setRenderingHint(java.awt.RenderingHints.KEY_FRACTIONALMETRICS, java.awt.RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+        composite = java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.65f)
+        color = Design.Colors.onSurfaceVariant
+    }
 
 private val HANDLE = Regex("\\{\\{([A-Za-z_][A-Za-z0-9_]*)}}")
 
@@ -366,12 +508,11 @@ private class PlaceholderTextArea(rows: Int, columns: Int) : JTextArea(rows, col
     override fun paintComponent(g: java.awt.Graphics) {
         super.paintComponent(g)
         if (document.length > 0) return
-        val g2 = g.create() as java.awt.Graphics2D
+        val g2 = placeholderGraphics(g)
         try {
-            g2.color = Design.Colors.onSurfaceVariant
             g2.font = font
             val metrics = g2.fontMetrics
-            val x = insets.left
+            val x = insets.left + 2
             var y = insets.top + metrics.ascent
             placeholder.lineSequence().forEach { line ->
                 g2.drawString(line, x, y)

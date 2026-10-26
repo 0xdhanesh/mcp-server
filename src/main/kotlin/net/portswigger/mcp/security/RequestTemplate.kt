@@ -33,8 +33,15 @@ internal data class RequestTemplate(val host: String, val service: HttpService, 
             require(hostLines.size == 1 && headerLines.none { it.startsWith("Transfer-Encoding:", true) }) {
                 "Raw request needs one Host header and no transfer encoding."
             }
+            val lengthLines = headerLines.filter { it.substringBefore(':').trim().equals("Content-Length", true) }
+            require(lengthLines.size <= 1 && lengthLines.all {
+                it.substringAfter(':', "").trim().matches(Regex("[0-9]+"))
+            }) { "Use one numeric Content-Length header or omit it." }
             val hostLine = hostLines.single()
             val authority = hostLine.substringAfter(':').trim()
+            require(authority.isNotBlank() && !authority.endsWith(':')) {
+                "Host header needs a hostname and, for a nonstandard port, a numeric port."
+            }
             val target = first.split(' ')[1]
             val absolute = target.startsWith("http://", true) || target.startsWith("https://", true)
             val absoluteParts = if (absolute) Regex("^(https?)://([^/?#]+)([^#]*)$", RegexOption.IGNORE_CASE)

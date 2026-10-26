@@ -166,8 +166,18 @@ private fun correctContentLength(raw: String): String {
     if (separator < 0) return raw
     val header = raw.substring(0, separator)
     val body = raw.substring(separator + 4)
-    val fixed = header.replace(Regex("(?im)^Content-Length: *[0-9]+$")) {
-        "Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}"
+    val lines = header.split("\r\n")
+    val hadLength = lines.drop(1).any { it.substringBefore(':').trim().equals("Content-Length", true) }
+    val withoutLength = lines.filterIndexed { index, line ->
+        index == 0 || !line.substringBefore(':').trim().equals("Content-Length", true)
     }
-    return fixed + "\r\n\r\n" + body
+    return buildString {
+        append(withoutLength.joinToString("\r\n"))
+        if (body.isNotEmpty() || hadLength) {
+            append("\r\nContent-Length: ")
+            append(body.toByteArray(StandardCharsets.UTF_8).size)
+        }
+        append("\r\n\r\n")
+        append(body)
+    }
 }

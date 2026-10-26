@@ -26,6 +26,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JPasswordField
 import javax.swing.JScrollPane
+import javax.swing.JTable
 import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
@@ -154,6 +155,67 @@ class TokenRequestProfileTest {
     }
 
     @Test
+    fun `raw JSON token request rejects unquoted handles and incomplete Host`() = withAuthService {
+        val valid = TokenRequestProfile(
+            template = "POST /token HTTP/1.1\r\nHost: auth.target\r\n" +
+                "Content-Type: application/json\r\n\r\n" +
+                """{"username":"{{username}}","password":"{{password}}"}"""
+        )
+        config.saveTokenRequestProfile(valid, store)
+        val invalidJson = valid.copy(template = valid.template.replace("\"{{username}}\"", "{{username}}"))
+        assertEquals(
+            "Invalid JSON body. Quote each {{name}} handle as a JSON string.",
+            assertThrows(IllegalArgumentException::class.java) {
+                config.saveTokenRequestProfile(invalidJson, store)
+            }.message
+        )
+        val invalidHost = valid.copy(template = valid.template.replace("Host: auth.target", "Host: localhost:"))
+        assertEquals(
+            "Host header needs a hostname and, for a nonstandard port, a numeric port.",
+            assertThrows(IllegalArgumentException::class.java) {
+                config.saveTokenRequestProfile(invalidHost, store)
+            }.message
+        )
+    }
+
+    @Test
+    fun `configured items show role bindings and JSON keys without stored values`() = withAuthService {
+        config.saveTokenRequestProfile(TokenRequestProfile(
+            template = "POST /token HTTP/1.1\r\nHost: auth.target\r\nContent-Type: application/json\r\n\r\n" +
+                """{"username":"{{usrname}}","password":"{{pwd}}"}""",
+            targetHost = "api.target"
+        ), store)
+        store.put("usrname", "alice-login", "alice", "auth.target")
+        store.put("pwd", "alice-password", "alice", "auth.target")
+        store.put("session", "alice-token", "alice", "api.target")
+        store.put("usrname", "bob-login", "bob", "auth.target")
+        store.put("usrname", "admin-login", "admin", "api.target")
+        store.put("pwd", "admin-password", "admin", "api.target")
+        SwingUtilities.invokeAndWait {
+            val panel = TokenRequestPanel(config, store)
+            val summary = components(panel).filterIsInstance<JTextArea>()
+                .first { !it.isEditable && it.text.startsWith("Saved request:") }
+            val table = components(panel).filterIsInstance<JTable>().single()
+            assertTrue(summary.text.contains("username -> {{usrname}}, password -> {{pwd}}"))
+            assertTrue(summary.text.contains("POST https://auth.target:443/token"))
+            assertFalse(summary.text.contains("alice-password"))
+            assertFalse(summary.text.contains("alice-token"))
+            assertEquals(3, table.rowCount)
+            val rows = (0 until table.rowCount).associate { row ->
+                table.getValueAt(row, 0) as String to (0 until table.columnCount).map { table.getValueAt(row, it) as String }
+            }
+            assertEquals("None (ready to request)", rows.getValue("alice")[2])
+            assertEquals("Stored", rows.getValue("alice")[3])
+            assertEquals("{{pwd}}", rows.getValue("bob")[2])
+            assertEquals("api.target", rows.getValue("admin")[4])
+            store.put("pwd", "bob-password", "bob", "auth.target")
+            components(panel).filterIsInstance<JButton>().first { it.text == "Refresh configured items" }.doClick()
+            assertEquals("None (ready to request)", table.getValueAt(2, 2))
+            assertFalse(summary.text.contains("bob-password"))
+        }
+    }
+
+    @Test
     fun `MCP tab offers curl and raw HTTP with examples and reloads the saved request`() = withAuthService {
         SwingUtilities.invokeAndWait {
             val panel = TokenRequestPanel(config, store)
@@ -164,6 +226,7 @@ class TokenRequestProfileTest {
             assertTrue(editor.accessibleContext.accessibleDescription.startsWith("curl -X POST"))
             mode.selectedIndex = 1
             assertTrue(editor.accessibleContext.accessibleDescription.startsWith("POST /token HTTP/1.1"))
+            assertFalse(editor.accessibleContext.accessibleDescription.contains("Content-Length:"))
             editor.text = "POST /token HTTP/1.1\r\nHost: auth.target\r\nContent-Type: application/json\r\n\r\n" +
                 """{"username":"{{username}}","password":"{{password}}"}"""
             components(panel).filterIsInstance<javax.swing.JCheckBox>()
@@ -222,7 +285,10 @@ class TokenRequestProfileTest {
     private fun withAuthService(block: () -> Unit) {
         mockkStatic(HttpService::class)
         try {
-            every { HttpService.httpService("auth.target", 443, true) } returns mockk()
+            val service = mockk<HttpService>()
+            every { service.secure() } returns true
+            every { service.port() } returns 443
+            every { HttpService.httpService("auth.target", 443, true) } returns service
             block()
         } finally {
             unmockkStatic(HttpService::class)

@@ -104,6 +104,55 @@ class VariableStoreTest {
     }
 
     @Test
+    fun `raw token request adds content length after expanding UTF-8 credentials`() {
+        val store = VariableStore().apply {
+            put("username", "café", "alice", "localhost")
+            put("password", "lab-pass", "alice", "localhost")
+        }
+        mockkStatic(HttpService::class)
+        mockkStatic(HttpRequest::class)
+        try {
+            val service = mockk<HttpService>()
+            val content = slot<String>()
+            every { HttpService.httpService("localhost", 18081, false) } returns service
+            every { HttpRequest.httpRequest(service, capture(content)) } returns mockk()
+            val template = "POST /token HTTP/1.1\r\nHost: localhost:18081\r\n" +
+                "Content-Type: application/json\r\n\r\n" +
+                """{"username":"{{username}}","password":"{{password}}"}"""
+            store.expand(template, "alice", "localhost", rawUsesHttps = false)
+            val body = """{"username":"café","password":"lab-pass"}"""
+            assertTrue(content.captured.endsWith(body))
+            assertEquals(1, Regex("(?im)^Content-Length:").findAll(content.captured).count())
+            assertTrue(content.captured.contains("Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}\r\n"))
+        } finally {
+            unmockkStatic(HttpRequest::class)
+            unmockkStatic(HttpService::class)
+        }
+    }
+
+    @Test
+    fun `raw token request replaces a stale numeric content length`() {
+        val store = VariableStore().apply { put("username", "alice", "alice", "localhost") }
+        mockkStatic(HttpService::class)
+        mockkStatic(HttpRequest::class)
+        try {
+            val service = mockk<HttpService>()
+            val content = slot<String>()
+            every { HttpService.httpService("localhost", 18081, false) } returns service
+            every { HttpRequest.httpRequest(service, capture(content)) } returns mockk()
+            val template = "POST /token HTTP/1.1\r\nHost: localhost:18081\r\n" +
+                "Content-Length: 0\r\n\r\n" + """{"username":"{{username}}"}"""
+            store.expand(template, "alice", "localhost", rawUsesHttps = false)
+            val body = """{"username":"alice"}"""
+            assertEquals(1, Regex("(?im)^Content-Length:").findAll(content.captured).count())
+            assertTrue(content.captured.contains("Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}\r\n"))
+        } finally {
+            unmockkStatic(HttpRequest::class)
+            unmockkStatic(HttpService::class)
+        }
+    }
+
+    @Test
     fun `raw HTTP absolute URL selects HTTP and expands a path handle`() {
         val store = VariableStore().apply { put("user_id", "17", "user", "127.0.0.1") }
         mockkStatic(HttpService::class)
